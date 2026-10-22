@@ -22,7 +22,7 @@ export const RAZORPAY_PAYMENTS_ENABLED: boolean =
  *  - Pro upgrade UI/pricing cards remain visible for user preview.
  *  - Voluntary UPI/QR donation flow remains fully active and enabled.
  */
-export const PRO_ENFORCEMENT_ENABLED: boolean = false;
+export const PRO_ENFORCEMENT_ENABLED: boolean = true;
 
 /**
  * VOLUNTARY DONATION FEATURE FLAG
