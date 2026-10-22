@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyPaymentSignature } from "@/lib/razorpay";
 import { getPlanConfig, PlanId } from "@/lib/monetization-config";
 import { constructPurchasedEntitlement, verifyFirebaseIdToken } from "@/lib/entitlements";
-import { getFirebaseAdminDb } from "@/lib/firebase-admin";
+import { getFirebaseAdminFirestore } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
 
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     // Authoritative Server-Side Firestore Update
     if (verifiedUid) {
       try {
-        const adminDb = getFirebaseAdminDb();
+        const adminDb = getFirebaseAdminFirestore();
         if (adminDb) {
           await adminDb.collection("users").doc(verifiedUid).collection("data").doc("entitlement").set(entitlement, { merge: true });
           console.log(`[Payment API] Server updated Firestore entitlement for user ${verifiedUid}`);

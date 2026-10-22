@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyWebhookSignature } from "@/lib/razorpay";
 import { constructPurchasedEntitlement } from "@/lib/entitlements";
 import { PlanId } from "@/lib/monetization-config";
-import { getFirebaseAdminDb } from "@/lib/firebase-admin";
+import { getFirebaseAdminFirestore } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
 
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
 
         if (targetUserId && targetUserId !== "anonymous") {
           try {
-            const adminDb = getFirebaseAdminDb();
+            const adminDb = getFirebaseAdminFirestore();
             if (adminDb) {
               await adminDb
                 .collection("users")

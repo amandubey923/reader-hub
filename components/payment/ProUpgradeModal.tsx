@@ -219,23 +219,26 @@ export default function ProUpgradeModal() {
 
           {/* Gateway Status Note */}
           <div className="pt-2 border-t border-[var(--border)]/60 flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-2 text-[10.5px]">
+            <div className="flex items-center justify-between gap-3 text-[11px]">
               <div className="flex items-center gap-1.5 text-[var(--text-secondary)]">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                <span>Pro Gateway: <strong className="text-[var(--foreground)]">Secure Checkout</strong></span>
+                <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-xs shadow-emerald-400/50" />
+                <span className="font-medium text-[var(--text-secondary)]">Secure Razorpay Checkout</span>
               </div>
 
               <button
                 type="button"
                 onClick={handleUpgradeClick}
                 disabled={isCheckoutLoading}
-                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:opacity-95 text-zinc-950 font-bold text-xs shadow-md shadow-amber-500/10 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:via-amber-400 hover:to-orange-400 text-zinc-950 font-bold text-xs tracking-wide shadow-md shadow-amber-500/15 hover:shadow-lg hover:shadow-amber-500/25 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 flex items-center gap-1.5 whitespace-nowrap"
               >
-                {isCheckoutLoading
-                  ? "Connecting..."
-                  : selectedPlan === "PRO_MONTHLY"
-                  ? "Upgrade to Pro • ₹49"
-                  : "Upgrade to Pro • ₹299"}
+                <span>✨</span>
+                <span>
+                  {isCheckoutLoading
+                    ? "Connecting..."
+                    : selectedPlan === "PRO_MONTHLY"
+                    ? "Upgrade to Pro • ₹49"
+                    : "Upgrade to Pro • ₹299"}
+                </span>
               </button>
             </div>
 
