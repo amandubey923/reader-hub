@@ -218,20 +218,32 @@ export default function ProUpgradeModal() {
           </div>
 
           {/* Gateway Status Note */}
-          <div className="pt-2 border-t border-[var(--border)]/60 flex items-center justify-between gap-2 text-[10.5px]">
-            <div className="flex items-center gap-1.5 text-[var(--text-secondary)]">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-              <span>Pro Gateway: <strong>Verification in progress</strong></span>
+          <div className="pt-2 border-t border-[var(--border)]/60 flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2 text-[10.5px]">
+              <div className="flex items-center gap-1.5 text-[var(--text-secondary)]">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                <span>Pro Gateway: <strong className="text-[var(--foreground)]">Secure Checkout</strong></span>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleUpgradeClick}
+                disabled={isCheckoutLoading}
+                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:opacity-95 text-zinc-950 font-bold text-xs shadow-md shadow-amber-500/10 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
+              >
+                {isCheckoutLoading
+                  ? "Connecting..."
+                  : selectedPlan === "PRO_MONTHLY"
+                  ? "Upgrade to Pro • ₹49"
+                  : "Upgrade to Pro • ₹299"}
+              </button>
             </div>
 
-            <button
-              type="button"
-              onClick={handleUpgradeClick}
-              disabled={isCheckoutLoading}
-              className="px-2.5 py-1 rounded-lg bg-[var(--secondary)] hover:bg-[var(--border)] text-[10px] font-semibold text-[var(--foreground)] border border-[var(--border)] transition-all cursor-pointer"
-            >
-              {isCheckoutLoading ? "Checking..." : "Upgrade Intent"}
-            </button>
+            {errorMessage && (
+              <div className="text-[11px] text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl p-2">
+                {errorMessage}
+              </div>
+            )}
           </div>
         </div>
 

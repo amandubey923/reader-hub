@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyWebhookSignature } from "@/lib/razorpay";
 import { constructPurchasedEntitlement } from "@/lib/entitlements";
 import { PlanId } from "@/lib/monetization-config";
+import { getFirebaseAdminDb } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
 
@@ -38,10 +39,28 @@ export async function POST(req: NextRequest) {
       const planId = (paymentEntity?.notes?.planId || orderEntity?.notes?.planId) as PlanId;
       const orderId = paymentEntity?.order_id || orderEntity?.id;
       const paymentId = paymentEntity?.id || "webhook_captured";
+      const targetUserId = paymentEntity?.notes?.userId || orderEntity?.notes?.userId;
 
       if (planId && orderId) {
-        constructPurchasedEntitlement(planId, orderId, paymentId);
+        const entitlement = constructPurchasedEntitlement(planId, orderId, paymentId);
         console.log(`[Payment Webhook] Processed event ${eventType} for plan ${planId}`);
+
+        if (targetUserId && targetUserId !== "anonymous") {
+          try {
+            const adminDb = getFirebaseAdminDb();
+            if (adminDb) {
+              await adminDb
+                .collection("users")
+                .doc(targetUserId)
+                .collection("data")
+                .doc("entitlement")
+                .set(entitlement, { merge: true });
+              console.log(`[Payment Webhook] Server updated Firestore entitlement for user ${targetUserId}`);
+            }
+          } catch (dbErr) {
+            console.warn("[Payment Webhook] Firestore update notice:", dbErr);
+          }
+        }
       }
     }
 

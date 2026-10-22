@@ -15,9 +15,10 @@ export function getRazorpayKeys() {
   const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || "rzp_webhook_placeholder";
 
   const isConfigured = Boolean(
-    process.env.RAZORPAY_KEY_ID &&
-    process.env.RAZORPAY_KEY_SECRET &&
-    process.env.RAZORPAY_KEY_ID !== "rzp_test_placeholder"
+    keyId &&
+    keySecret &&
+    keyId !== "rzp_test_placeholder" &&
+    keySecret !== "rzp_secret_placeholder"
   );
 
   return { keyId, keySecret, webhookSecret, isConfigured };
@@ -56,16 +57,19 @@ export async function createRazorpayOrder({
 
   const receipt = `rec_${planId.toLowerCase()}_${Date.now().toString().slice(-8)}`;
 
-  // If running in development without live/test keys set, create a simulated secure test order
+  // If keys are not configured, only fall back to simulated order if in dev and using placeholder keys
   if (!isConfigured) {
-    console.warn("[Razorpay] Using simulated test order (keys not configured in .env)");
-    return {
-      orderId: `order_test_${Date.now()}`,
-      amount: plan.amountPaise,
-      currency: "INR",
-      planId,
-      receipt,
-    };
+    if (keyId === "rzp_test_placeholder" && process.env.NODE_ENV !== "production") {
+      console.warn("[Razorpay] Using simulated test order (placeholder credentials in dev)");
+      return {
+        orderId: `order_test_${Date.now()}`,
+        amount: plan.amountPaise,
+        currency: "INR",
+        planId,
+        receipt,
+      };
+    }
+    throw new Error("Razorpay gateway is not fully configured (missing RAZORPAY_KEY_SECRET or key ID in environment variables).");
   }
 
   const authHeader = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
