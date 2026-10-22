@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenAI } from "@google/genai";
+import { executeWithKeyRotation, getGeminiKeyPool } from "@/lib/gemini-rotator";
 import {
   tryDeterministicQuery,
   getCompactCatalogSummary,
@@ -37,16 +37,10 @@ export async function POST(req: NextRequest) {
     }
 
     // -------------------------------------------------------------
-    // Step 2: GEMINI API GROUNDED INFERENCE
+    // Step 2: GEMINI API GROUNDED INFERENCE (With Key Rotation)
     // -------------------------------------------------------------
-    const apiKey =
-      process.env.GEMINI_API_KEY ||
-      process.env.Gemini_API_Key ||
-      process.env.GEMINI_KEY ||
-      process.env.GOOGLE_API_KEY ||
-      "";
-
-    if (!apiKey) {
+    const keyPool = getGeminiKeyPool();
+    if (keyPool.length === 0) {
       return NextResponse.json({
         reply: "I couldn't find a direct match. Try asking about a specific book title, author (e.g. Osho, Plato, Premchand), or genre category in Reader's HUB.",
         books: [],
@@ -76,45 +70,42 @@ READER'S HUB LIBRARY CATALOG:
 ${catalogSummary}
 `;
 
-    const ai = new GoogleGenAI({ apiKey });
-
-    // Try primary models with graceful fallback
-    const modelsToTry = [
-      "gemini-3.1-flash-lite-preview",
-      "gemini-3-flash-preview",
-      "gemini-3.1-flash-lite",
-      "gemini-3.6-flash",
-      "gemini-3.7-flash",
-    ];
     let rawOutput = "";
-
-    for (const model of modelsToTry) {
-      try {
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`Timeout on model ${model}`)), 8000)
-        );
-
-        const generatePromise = ai.models.generateContent({
-          model,
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: userMessage }],
+    try {
+      const { result } = await executeWithKeyRotation(
+        async (ai, _keyEntry, model) => {
+          const response = await ai.models.generateContent({
+            model,
+            contents: [
+              {
+                role: "user",
+                parts: [{ text: userMessage }],
+              },
+            ],
+            config: {
+              systemInstruction,
+              temperature: 0.2,
+              responseMimeType: "application/json",
             },
+          });
+          return response.text || "";
+        },
+        {
+          models: [
+            "gemini-3.1-flash-lite-preview",
+            "gemini-3-flash-preview",
+            "gemini-3.1-flash-lite",
+            "gemini-3.6-flash",
+            "gemini-3.7-flash",
+            "gemini-2.5-flash",
           ],
-          config: {
-            systemInstruction,
-            temperature: 0.2,
-            responseMimeType: "application/json",
-          },
-        });
-
-        const response = await Promise.race([generatePromise, timeoutPromise]);
-        rawOutput = response.text || "";
-        if (rawOutput) break;
-      } catch (err: any) {
-        console.warn(`[Chat API] Model ${model} failed, trying fallback...`, err?.message || err);
-      }
+          perAttemptTimeoutMs: 8000,
+          logPrefix: "[Chat API]",
+        }
+      );
+      rawOutput = result;
+    } catch (err: any) {
+      console.warn("[Chat API] All keys and models failed in rotation:", err?.message || err);
     }
 
     if (rawOutput) {
@@ -156,4 +147,3 @@ ${catalogSummary}
     );
   }
 }
-

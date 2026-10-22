@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenAI } from "@google/genai";
+import { executeWithKeyRotation, getGeminiKeyPool } from "@/lib/gemini-rotator";
 
 export const runtime = "nodejs";
 
@@ -33,18 +33,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const apiKey =
-      process.env.GEMINI_API_KEY ||
-      process.env.Gemini_API_Key ||
-      process.env.GEMINI_KEY ||
-      process.env.GOOGLE_API_KEY ||
-      "";
-
-    if (!apiKey) {
+    const keyPool = getGeminiKeyPool();
+    if (keyPool.length === 0) {
       return NextResponse.json(
         {
           success: false,
-          error: "Translation service is not configured. Please add an API key in .env.",
+          error: "Translation service is not configured. Please add GEMINI_API_KEY in environment variables.",
         },
         { status: 503 }
       );
@@ -81,25 +75,9 @@ CRITICAL TRANSLATION GUIDELINES:
 }
 `;
 
-    const ai = new GoogleGenAI({ apiKey });
-    // Prioritize high-speed active models with graceful fallback
-    const modelsToTry = [
-      "gemini-3.1-flash-lite-preview",
-      "gemini-3-flash-preview",
-      "gemini-3.1-flash-lite",
-      "gemini-3.6-flash",
-      "gemini-3.7-flash",
-    ];
-    let rawOutput = "";
-
-    for (const model of modelsToTry) {
-      try {
-        // Fast per-model timeout to ensure the UI gets an instant response without hanging
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`Timeout on model ${model}`)), 7500)
-        );
-
-        const generatePromise = ai.models.generateContent({
+    const { result: rawOutput, keyUsed, modelUsed } = await executeWithKeyRotation(
+      async (ai, keyEntry, model) => {
+        const response = await ai.models.generateContent({
           model,
           contents: [
             {
@@ -113,14 +91,21 @@ CRITICAL TRANSLATION GUIDELINES:
             responseMimeType: "application/json",
           },
         });
-
-        const response = await Promise.race([generatePromise, timeoutPromise]);
-        rawOutput = response.text || "";
-        if (rawOutput) break;
-      } catch (err: any) {
-        console.warn(`[Translate API] Model ${model} failed, trying next fallback...`, err?.message || err);
+        return response.text || "";
+      },
+      {
+        models: [
+          "gemini-3.1-flash-lite-preview",
+          "gemini-3-flash-preview",
+          "gemini-3.1-flash-lite",
+          "gemini-3.6-flash",
+          "gemini-3.7-flash",
+          "gemini-2.5-flash",
+        ],
+        perAttemptTimeoutMs: 7500,
+        logPrefix: "[Translate API]",
       }
-    }
+    );
 
     if (!rawOutput) {
       return NextResponse.json(
@@ -161,11 +146,10 @@ CRITICAL TRANSLATION GUIDELINES:
       });
     }
   } catch (error: any) {
-    console.error("[Translate API] Unexpected error:", error);
+    console.error("[Translate API] Unexpected error:", error?.message || error);
     return NextResponse.json(
-      { success: false, error: "An error occurred while translating. Please try again." },
-      { status: 500 }
+      { success: false, error: "Translation service temporarily unavailable. Please try again." },
+      { status: 503 }
     );
   }
 }
-
