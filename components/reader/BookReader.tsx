@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Book } from "@/data/books";
@@ -45,6 +45,7 @@ import {
   syncAnnotationsToCloud,
   syncBookmarksToCloud,
 } from "@/lib/firestore-sync";
+import { registerReaderBridge, notifyReaderChanged, ReaderSnapshot } from "@/lib/companion/reader-bridge";
 
 interface BookReaderProps {
   book: Book;
@@ -1834,6 +1835,127 @@ export default function BookReader({ book }: BookReaderProps) {
     setNoteModal({ isOpen: false, page: 1, noteText: "" });
     showToast("Note saved 📝");
   };
+
+  // ---------------------------------------------------------------------------
+  // AI Reading Companion bridge (components/companion). Read-only context plus a few
+  // allow-listed actions that reuse this reader's own navigation, bookmark and note logic.
+  // ---------------------------------------------------------------------------
+  const companionLastSelectionRef = useRef<{ text: string; pageNum: number } | null>(null);
+
+  const getCompanionVisiblePages = (): number[] => {
+    if (numPages === 0) return [];
+    if (prefs.layoutMode === "double" && !isMobile) {
+      const left = currentPage === 1 ? 0 : currentPage % 2 === 0 ? currentPage : currentPage - 1;
+      const right = currentPage === 1 ? 1 : left + 1;
+      return [left, right].filter((p) => p >= 1 && p <= numPages);
+    }
+    return currentPage >= 1 && currentPage <= numPages ? [currentPage] : [];
+  };
+
+  const companionLiveRef = useRef({
+    snapshot: null as ReaderSnapshot | null,
+    next: () => {},
+    prev: () => {},
+    jump: (_page: number) => {},
+    addBookmarkAt: (_page: number): { ok: boolean; alreadyExisted?: boolean } => ({ ok: false }),
+    addNoteAt: (_page: number, _text: string): boolean => false,
+  });
+
+  // Publish the latest committed reader state and handlers (runs before the notify effect below)
+  useLayoutEffect(() => {
+    if (selectionPopover?.text) {
+      companionLastSelectionRef.current = { text: selectionPopover.text, pageNum: selectionPopover.page };
+    }
+    const visiblePages = getCompanionVisiblePages();
+    const lastSelection = companionLastSelectionRef.current;
+    // Real outline entries only (the fallback "Section — Page N" milestones are not chapters)
+    const chapter = tableOfContents
+      .filter((t) => t.page <= currentPage && !/^(Section — Page \d+|Opening & Front Matter)$/.test(t.title))
+      .pop()?.title;
+
+    companionLiveRef.current = {
+      snapshot: {
+        bookId: book.id,
+        title: book.title,
+        author: book.author,
+        currentPage,
+        totalPages: numPages,
+        visiblePages,
+        layout: prefs.layoutMode === "double" && !isMobile ? "double" : "single",
+        chapter,
+        selection: lastSelection && visiblePages.includes(lastSelection.pageNum) ? lastSelection : undefined,
+        isLoaded: !loading && numPages > 0,
+      },
+      next: handleNext,
+      prev: handlePrev,
+      jump: handleJumpToPage,
+      addBookmarkAt: (page: number) => {
+        if (getBookmarks(book.id, user?.uid).some((b) => b.page === page)) return { ok: true, alreadyExisted: true };
+        saveBookmark(book.id, page, `Page ${page} Bookmark`, user?.uid);
+        const updatedBms = getBookmarks(book.id, user?.uid);
+        setBookmarks(updatedBms);
+        if (user?.uid) syncBookmarksToCloud(user.uid, book.id, updatedBms);
+        showToast(`Bookmarked Page ${page} 🔖`);
+        return { ok: updatedBms.some((b) => b.page === page) };
+      },
+      addNoteAt: (page: number, text: string) => {
+        const newNote = addNote(book.id, { bookId: book.id, page, note: text }, user?.uid);
+        if (!newNote) return false;
+        setAnnotations((prev) => {
+          const next = { ...prev, notes: [...prev.notes, newNote] };
+          if (user?.uid) syncAnnotationsToCloud(user.uid, book.id, next);
+          return next;
+        });
+        showToast("Note saved 📝");
+        return true;
+      },
+    };
+  });
+
+  useEffect(() => {
+    const textCache = new Map<number, string>();
+    const live = () => companionLiveRef.current;
+    const inRange = (page: number) => Number.isInteger(page) && page >= 1 && page <= numPagesRef.current;
+
+    return registerReaderBridge({
+      getSnapshot: () => live().snapshot!,
+      getPageText: async (pageNum: number) => {
+        if (!pdfDocRef.current || !inRange(pageNum)) return "";
+        const cached = textCache.get(pageNum);
+        if (cached !== undefined) return cached;
+        try {
+          const page = await pdfDocRef.current.getPage(pageNum);
+          const content = await page.getTextContent();
+          const text = normalizePdfText(content.items as any);
+          textCache.set(pageNum, text);
+          return text;
+        } catch {
+          return "";
+        }
+      },
+      goToPage: (pageNum: number) => {
+        if (!pdfDocRef.current || !inRange(pageNum)) return false;
+        live().jump(pageNum);
+        return true;
+      },
+      nextPage: () => {
+        if (!pdfDocRef.current || currentPageRef.current >= numPagesRef.current) return false;
+        live().next();
+        return true;
+      },
+      previousPage: () => {
+        if (!pdfDocRef.current || currentPageRef.current <= 1) return false;
+        live().prev();
+        return true;
+      },
+      addBookmark: (pageNum: number) => (inRange(pageNum) ? live().addBookmarkAt(pageNum) : { ok: false }),
+      addNote: (pageNum: number, text: string) => (inRange(pageNum) && text.trim() ? live().addNoteAt(pageNum, text.trim()) : false),
+    });
+  }, [book.id]);
+
+  useEffect(() => {
+    notifyReaderChanged();
+  }, [currentPage, numPages, loading, prefs.layoutMode, isMobile, tableOfContents, selectionPopover]);
 
   // Visual Tone Filter
   const getFilterStyle = (): React.CSSProperties => {

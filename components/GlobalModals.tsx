@@ -8,6 +8,7 @@ const LibraryAssistant = dynamic(() => import("@/components/assistant/LibraryAss
 const ProUpgradeModal = dynamic(() => import("@/components/payment/ProUpgradeModal"), { ssr: false });
 const ProPaymentStatusModal = dynamic(() => import("@/components/payment/ProPaymentStatusModal"), { ssr: false });
 const SupportReaderModal = dynamic(() => import("@/components/monetization/SupportReaderModal"), { ssr: false });
+const CompanionRoot = dynamic(() => import("@/components/companion/CompanionRoot"), { ssr: false });
 
 export default function GlobalModals() {
   return (
@@ -17,6 +18,7 @@ export default function GlobalModals() {
       <ProUpgradeModal />
       <ProPaymentStatusModal />
       <SupportReaderModal />
+      <CompanionRoot />
     </>
   );
 }

@@ -4,26 +4,39 @@ import { FREE_TIER_LIMITS, PRO_ENFORCEMENT_ENABLED } from "@/lib/monetization-co
 import { isEntitlementActive, UserEntitlement } from "@/lib/entitlements";
 import { getFirebaseAdminFirestore } from "@/lib/firebase-admin";
 
-export type AiFeature = "chat" | "translate";
+export type AiFeature = "chat" | "translate" | "companion" | "embed";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 // Anonymous callers are keyed by IP, which several readers may share (campus, office, mobile NAT)
 const GUEST_IP_DAILY_MULTIPLIER = 3;
 
-const FEATURE_LIMITS: Record<AiFeature, { burstPerMinute: number; freeDaily: number }> = {
+// Reading companion allowance (messages that reach the model; direct page commands never do).
+// A product decision kept here so it can be tuned in one place.
+export const COMPANION_FREE_DAILY_MESSAGES = 25;
+// Embedding budget per account per day, counted in passages (a 300-page book is roughly 300-600 passages)
+export const EMBED_DAILY_PASSAGES = 2000;
+
+const FEATURE_LIMITS: Record<AiFeature, { burstPerMinute: number; freeDaily: number; alwaysDaily?: boolean }> = {
   chat: { burstPerMinute: 12, freeDaily: FREE_TIER_LIMITS.DAILY_AI_QUERIES },
   translate: { burstPerMinute: 8, freeDaily: FREE_TIER_LIMITS.DAILY_TRANSLATION_SPREADS },
+  companion: { burstPerMinute: 10, freeDaily: COMPANION_FREE_DAILY_MESSAGES },
+  // Embeddings are a cost control, not a plan feature: capped for everyone, including Pro
+  embed: { burstPerMinute: 30, freeDaily: EMBED_DAILY_PASSAGES, alwaysDaily: true },
 };
 
 const burstLimiters: Record<AiFeature, ReturnType<typeof createRateLimiter>> = {
   chat: createRateLimiter({ windowMs: 60_000, max: FEATURE_LIMITS.chat.burstPerMinute }),
   translate: createRateLimiter({ windowMs: 60_000, max: FEATURE_LIMITS.translate.burstPerMinute }),
+  companion: createRateLimiter({ windowMs: 60_000, max: FEATURE_LIMITS.companion.burstPerMinute }),
+  embed: createRateLimiter({ windowMs: 60_000, max: FEATURE_LIMITS.embed.burstPerMinute }),
 };
 
 const dailyLimiters: Record<AiFeature, ReturnType<typeof createRateLimiter>> = {
   chat: createRateLimiter({ windowMs: DAY_MS, max: FEATURE_LIMITS.chat.freeDaily }),
   translate: createRateLimiter({ windowMs: DAY_MS, max: FEATURE_LIMITS.translate.freeDaily }),
+  companion: createRateLimiter({ windowMs: DAY_MS, max: FEATURE_LIMITS.companion.freeDaily }),
+  embed: createRateLimiter({ windowMs: DAY_MS, max: FEATURE_LIMITS.embed.freeDaily }),
 };
 
 const PRO_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -61,9 +74,22 @@ export interface AiGuardResult {
  * Server-side abuse protection for paid AI endpoints. Guests remain allowed (reading is login-free),
  * but every caller is burst-limited and, while Pro enforcement is on, held to the free daily allowance.
  */
-export async function guardAiRequest(headers: Headers, feature: AiFeature): Promise<AiGuardResult> {
-  const caller = await getVerifiedCaller(headers.get("authorization"));
+const DAILY_LIMIT_MESSAGES: Record<AiFeature, string> = {
+  chat: "You have reached today's free limit for AI assistant questions.",
+  translate: "You have reached today's free limit for page translations.",
+  companion: "You have reached today's free limit for Bodhi, your reading companion. Page commands still work.",
+  embed: "Today's whole-book indexing budget is used up. Please try again tomorrow.",
+};
+
+export async function guardAiRequest(
+  headers: Headers,
+  feature: AiFeature,
+  options: { cost?: number; caller?: Awaited<ReturnType<typeof getVerifiedCaller>> } = {}
+): Promise<AiGuardResult> {
+  const caller = options.caller !== undefined ? options.caller : await getVerifiedCaller(headers.get("authorization"));
   const identity = caller ? `uid:${caller.uid}` : `ip:${getClientIp(headers)}`;
+  const limits = FEATURE_LIMITS[feature];
+  const cost = Math.max(1, Math.floor(options.cost ?? 1));
 
   const burst = burstLimiters[feature].check(identity);
   if (!burst.allowed) {
@@ -75,18 +101,15 @@ export async function guardAiRequest(headers: Headers, feature: AiFeature): Prom
     };
   }
 
-  if (PRO_ENFORCEMENT_ENABLED && !(caller && (await isProUser(caller.uid)))) {
-    const limits = FEATURE_LIMITS[feature];
+  const dailyApplies = limits.alwaysDaily || (PRO_ENFORCEMENT_ENABLED && !(caller && (await isProUser(caller.uid))));
+  if (dailyApplies) {
     const dailyMax = caller ? limits.freeDaily : limits.freeDaily * GUEST_IP_DAILY_MULTIPLIER;
-    const daily = dailyLimiters[feature].check(identity, dailyMax);
+    const daily = dailyLimiters[feature].check(identity, dailyMax, Date.now(), cost);
     if (!daily.allowed) {
       return {
         allowed: false,
         status: 429,
-        message:
-          feature === "chat"
-            ? "You have reached today's free limit for AI assistant questions."
-            : "You have reached today's free limit for page translations.",
+        message: DAILY_LIMIT_MESSAGES[feature],
         retryAfterSeconds: daily.retryAfterSeconds,
       };
     }

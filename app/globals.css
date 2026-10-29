@@ -445,6 +445,319 @@
 }
 
 /* -------------------------------------------------------------
+ * Bodhi — AI Reading Companion mascot (components/companion/BodhiRobot.tsx)
+ * Sizes derive from --s so the same robot works as launcher, header avatar and mobile button.
+ * ------------------------------------------------------------- */
+.bodhi {
+  --look-x: 0;
+  --look-y: 0;
+  --navy: #141b2d;
+  --gold: #e8a23a;
+  --gold-deep: #b45309;
+  --ivory: #fffdf8;
+  width: var(--s);
+  height: var(--s);
+  position: relative;
+  perspective: calc(var(--s) * 6);
+  flex-shrink: 0;
+}
+.bodhi-stage {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+}
+.bodhi-book {
+  position: absolute;
+  left: 4%;
+  right: 4%;
+  bottom: 2%;
+  height: 34%;
+  transform: rotateX(58deg);
+  transform-style: preserve-3d;
+}
+.bodhi-cover {
+  position: absolute;
+  inset: -6% -3%;
+  border-radius: 8%;
+  background: linear-gradient(135deg, #22304f, var(--navy));
+  box-shadow: 0 calc(var(--s) * 0.12) calc(var(--s) * 0.16) rgba(20, 27, 45, 0.35), inset 0 0 0 1.5px rgba(232, 162, 58, 0.7);
+  transform: translateZ(-2px);
+}
+.bodhi-page {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  background: repeating-linear-gradient(180deg, transparent 0 16%, rgba(20, 27, 45, 0.12) 16% 19%), linear-gradient(90deg, var(--ivory), #efe6d3);
+}
+.bodhi-page-l {
+  left: 0;
+  border-radius: 6% 0 0 6%;
+  transform-origin: right center;
+  transform: rotateY(8deg);
+}
+.bodhi-page-r {
+  right: 0;
+  border-radius: 0 6% 6% 0;
+  background: repeating-linear-gradient(180deg, transparent 0 16%, rgba(20, 27, 45, 0.12) 16% 19%), linear-gradient(270deg, var(--ivory), #efe6d3);
+  transform-origin: left center;
+  transform: rotateY(-8deg);
+}
+.bodhi-flutter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 48%;
+  border-radius: 0 6% 6% 0;
+  background: linear-gradient(270deg, #fff, #ece2cc);
+  transform-origin: left center;
+  opacity: 0;
+}
+.bodhi-bot {
+  position: absolute;
+  left: 21%;
+  width: 58%;
+  bottom: 20%;
+  height: 74%;
+  transform-style: preserve-3d;
+  animation: bodhiBob 3.6s ease-in-out infinite;
+}
+.bodhi-head {
+  position: absolute;
+  top: 8%;
+  left: 0;
+  width: 100%;
+  height: 47%;
+  border-radius: 34%;
+  background: radial-gradient(120% 90% at 30% 20%, #ffffff, var(--ivory) 45%, #e7dcc6 100%);
+  box-shadow: inset 0 calc(var(--s) * -0.03) calc(var(--s) * 0.05) rgba(20, 27, 45, 0.18), 0 calc(var(--s) * 0.04) calc(var(--s) * 0.08) rgba(20, 27, 45, 0.25);
+  transform: rotateY(calc(var(--look-x) * 16deg)) rotateX(calc(var(--look-y) * -12deg)) translateZ(6px);
+  transition: transform 260ms ease-out;
+  z-index: 3;
+}
+.bodhi-visor {
+  position: absolute;
+  inset: 20% 12% 22%;
+  border-radius: 40%;
+  background: radial-gradient(120% 120% at 35% 25%, #2a3a63, var(--navy) 70%);
+  box-shadow: inset 0 0 calc(var(--s) * 0.04) rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+.bodhi-eye {
+  position: absolute;
+  top: 26%;
+  width: 17%;
+  height: 40%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffd27a, var(--gold));
+  box-shadow: 0 0 calc(var(--s) * 0.06) rgba(232, 162, 58, 0.85);
+  transform: translate(calc(var(--look-x) * 18%), calc(var(--look-y) * 14%));
+  animation: bodhiBlink 5.2s infinite;
+  transition: height 200ms ease, top 200ms ease, border-radius 200ms ease;
+}
+.bodhi-eye-l {
+  left: 24%;
+}
+.bodhi-eye-r {
+  right: 24%;
+}
+.bodhi-mouth {
+  position: absolute;
+  bottom: 12%;
+  left: 50%;
+  display: flex;
+  gap: 8%;
+  width: 26%;
+  height: 16%;
+  align-items: flex-end;
+  transform: translateX(-50%);
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+.bodhi-mouth i {
+  flex: 1;
+  height: 40%;
+  border-radius: 2px;
+  background: var(--gold);
+}
+.bodhi-ear {
+  position: absolute;
+  top: 36%;
+  width: 11%;
+  height: 26%;
+  border-radius: 40%;
+  background: linear-gradient(180deg, #f6c56a, var(--gold-deep));
+}
+.bodhi-ear-l {
+  left: -6%;
+}
+.bodhi-ear-r {
+  right: -6%;
+}
+.bodhi-antenna {
+  position: absolute;
+  top: -4%;
+  left: 50%;
+  width: 4%;
+  height: 14%;
+  transform: translateX(-50%);
+  background: linear-gradient(180deg, #c9bfae, #8f8678);
+  border-radius: 2px;
+  z-index: 2;
+}
+.bodhi-bulb {
+  position: absolute;
+  top: -70%;
+  left: 50%;
+  width: calc(var(--s) * 0.085);
+  height: calc(var(--s) * 0.085);
+  border-radius: 50%;
+  transform: translateX(-50%);
+  background: radial-gradient(circle at 35% 30%, #fff1c9, var(--gold) 60%, var(--gold-deep));
+  box-shadow: 0 0 calc(var(--s) * 0.08) rgba(232, 162, 58, 0.9);
+}
+.bodhi-body {
+  position: absolute;
+  top: 54%;
+  left: 17%;
+  width: 66%;
+  height: 32%;
+  border-radius: 38% 38% 30% 30%;
+  background: linear-gradient(160deg, #ffffff, #e9dfca);
+  box-shadow: inset 0 calc(var(--s) * -0.02) calc(var(--s) * 0.04) rgba(20, 27, 45, 0.18);
+  z-index: 2;
+}
+.bodhi-core {
+  position: absolute;
+  top: 26%;
+  left: 50%;
+  width: 26%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  transform: translateX(-50%);
+  background: radial-gradient(circle at 35% 30%, #fff3cf, var(--gold) 55%, var(--gold-deep));
+  box-shadow: 0 0 calc(var(--s) * 0.05) rgba(232, 162, 58, 0.7);
+}
+.bodhi-arm {
+  position: absolute;
+  top: 58%;
+  width: 12%;
+  height: 26%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #f5ecdb, #d9ccb2);
+  transform-origin: 50% 10%;
+  z-index: 1;
+}
+.bodhi-arm-l {
+  left: 4%;
+  transform: rotate(18deg);
+}
+.bodhi-arm-r {
+  right: 4%;
+  transform: rotate(-18deg);
+}
+.bodhi-leg {
+  position: absolute;
+  bottom: -4%;
+  width: 13%;
+  height: 22%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #e9dfca, var(--navy) 85%);
+  transform-origin: 50% 0;
+  animation: bodhiSwing 2.8s ease-in-out infinite;
+}
+.bodhi-leg-l {
+  left: 30%;
+}
+.bodhi-leg-r {
+  right: 30%;
+  animation-delay: -1.4s;
+}
+
+/* Moods */
+.bodhi:hover .bodhi-arm-r,
+.bodhi[data-mood="happy"] .bodhi-arm-r {
+  animation: bodhiWave 0.9s ease-in-out 2;
+}
+.bodhi[data-mood="thinking"] .bodhi-eye {
+  top: 14%;
+  animation: none;
+}
+.bodhi[data-mood="thinking"] .bodhi-bulb {
+  animation: bodhiPulse 0.9s ease-in-out infinite;
+}
+.bodhi[data-mood="thinking"] .bodhi-flutter {
+  animation: bodhiFlutter 1.3s ease-in-out infinite;
+}
+.bodhi[data-mood="speaking"] .bodhi-mouth {
+  opacity: 1;
+}
+.bodhi[data-mood="speaking"] .bodhi-mouth i {
+  animation: bodhiTalk 0.42s ease-in-out infinite alternate;
+}
+.bodhi[data-mood="speaking"] .bodhi-mouth i:nth-child(2) {
+  animation-delay: -0.15s;
+}
+.bodhi[data-mood="speaking"] .bodhi-mouth i:nth-child(3) {
+  animation-delay: -0.3s;
+}
+.bodhi[data-mood="speaking"] .bodhi-core {
+  animation: bodhiPulse 1.2s ease-in-out infinite;
+}
+.bodhi[data-mood="happy"] .bodhi-eye {
+  height: 18%;
+  top: 32%;
+  border-radius: 999px 999px 4px 4px;
+  animation: none;
+}
+.bodhi[data-mood="error"] .bodhi-eye {
+  height: 10%;
+  top: 44%;
+  opacity: 0.7;
+  animation: none;
+}
+
+@keyframes bodhiBob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4%); }
+}
+@keyframes bodhiBlink {
+  0%, 92%, 100% { transform: translate(calc(var(--look-x) * 18%), calc(var(--look-y) * 14%)) scaleY(1); }
+  95% { transform: translate(calc(var(--look-x) * 18%), calc(var(--look-y) * 14%)) scaleY(0.1); }
+}
+@keyframes bodhiSwing {
+  0%, 100% { transform: rotate(10deg); }
+  50% { transform: rotate(-12deg); }
+}
+@keyframes bodhiWave {
+  0%, 100% { transform: rotate(-18deg); }
+  50% { transform: rotate(-150deg); }
+}
+@keyframes bodhiPulse {
+  0%, 100% { filter: brightness(1); box-shadow: 0 0 calc(var(--s) * 0.04) rgba(232, 162, 58, 0.6); }
+  50% { filter: brightness(1.3); box-shadow: 0 0 calc(var(--s) * 0.14) rgba(232, 162, 58, 1); }
+}
+@keyframes bodhiFlutter {
+  0% { opacity: 0; transform: rotateY(0deg); }
+  15% { opacity: 1; }
+  100% { opacity: 0; transform: rotateY(-170deg); }
+}
+@keyframes bodhiTalk {
+  from { height: 30%; }
+  to { height: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bodhi *,
+  .bodhi *::before,
+  .bodhi *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* -------------------------------------------------------------
  * 3D Realistic Physical Book Page-Turn Animations & Lighting
  * ------------------------------------------------------------- */
 @keyframes pageTurnRightNext {
