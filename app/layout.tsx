@@ -96,12 +96,12 @@ export default function RootLayout({
   children: ReactNode;
 }) {
   return (
-    <html lang="en" data-theme="original" className="scroll-smooth" suppressHydrationWarning>
+    <html lang="en" data-theme="architect" className="scroll-smooth" suppressHydrationWarning>
       <head>
         <script
           async={true}
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('readers_hub_theme_v3')||localStorage.getItem('readers_hub_theme_v2')||localStorage.getItem('readers_hub_theme')||'original';document.documentElement.setAttribute('data-theme',t);}catch(e){}if('serviceWorker' in navigator && window.location.protocol.startsWith('http')){navigator.serviceWorker.register('/sw.js').catch(function(e){console.warn('[PWA] SW registration notice:',e);});}window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();window.__pwaInstallPrompt=e;window.dispatchEvent(new Event('pwa-prompt-available'));});window.addEventListener('appinstalled',function(){window.__pwaInstallPrompt=null;window.dispatchEvent(new Event('pwa-installed'));});})();`,
+            __html: `(function(){try{var t=localStorage.getItem('readers_hub_theme_v3')||localStorage.getItem('readers_hub_theme_v2')||localStorage.getItem('readers_hub_theme')||'architect';document.documentElement.setAttribute('data-theme',t);}catch(e){}if('serviceWorker' in navigator && window.location.protocol.startsWith('http')){navigator.serviceWorker.register('/sw.js').catch(function(e){console.warn('[PWA] SW registration notice:',e);});}window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();window.__pwaInstallPrompt=e;window.dispatchEvent(new Event('pwa-prompt-available'));});window.addEventListener('appinstalled',function(){window.__pwaInstallPrompt=null;window.dispatchEvent(new Event('pwa-installed'));});})();`,
           }}
         />
       </head>

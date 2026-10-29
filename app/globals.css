@@ -190,6 +190,41 @@
   --theme-ambient-2: rgba(22, 163, 74, 0.1);
 }
 
+/* -------------------------------------------------------------
+ * 8. "Architect Ivory & Gold" (Default — warm ivory, brushed gold & sapphire slate)
+ * ------------------------------------------------------------- */
+[data-theme="architect"] {
+  --background: #f7f4ec;
+  --foreground: #141b2d;
+  --card: #fffdf8;
+  --card-foreground: #141b2d;
+  --card-border: #e9e0cf;
+  --primary: #d97706;
+  --primary-foreground: #ffffff;
+  --secondary: #f1ebdf;
+  --secondary-foreground: #1f2a40;
+  --accent: #a95c0a; /* deepened gold so small accent text keeps AA contrast on ivory */
+  --accent-secondary: #b45309;
+  --accent-glow: #e8a23a;
+  --accent-sapphire: #1f5f7a;
+  --muted: #efe8da;
+  --muted-foreground: #5b6476;
+  --border: #e4dac8;
+  --text-primary: #141b2d;
+  --text-secondary: #566074;
+  --theme-glow: rgba(217, 119, 6, 0.16);
+  --theme-ambient-1: rgba(232, 162, 58, 0.12);
+  --theme-ambient-2: rgba(31, 95, 122, 0.06);
+}
+
+/* Faint architectural drafting grid behind ivory surfaces */
+[data-theme="architect"] body {
+  background-image:
+    linear-gradient(rgba(20, 27, 45, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(20, 27, 45, 0.035) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -286,6 +321,24 @@
 
 .animate-scale-up {
   animation: scaleUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Utilities referenced by the hero (previously undefined) */
+.text-gold-gradient {
+  background: linear-gradient(100deg, var(--accent-glow), var(--primary) 45%, var(--accent-secondary));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+[data-theme="architect"] .text-gold-gradient {
+  background: linear-gradient(100deg, #b45309, #e8a23a 55%, var(--accent-sapphire));
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.perspective-1000 {
+  perspective: 1000px;
 }
 
 /* -------------------------------------------------------------

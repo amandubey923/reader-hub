@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { useTheme, THEMES } from "./ThemeProvider";
+import { useTheme, THEMES, DEFAULT_THEME } from "./ThemeProvider";
 
 interface NavbarThemeControlProps {
   compact?: boolean;
@@ -76,7 +76,7 @@ export default function NavbarThemeControl({ compact = false }: NavbarThemeContr
             </span>
             <div className="flex items-center gap-1 bg-[var(--background)] p-0.5 rounded-lg border border-[var(--border)]">
               <button
-                onClick={() => setTheme("light")}
+                onClick={() => setTheme(isLight ? theme : DEFAULT_THEME)}
                 className={`px-2 py-1 rounded-md text-xs transition-all cursor-pointer flex items-center gap-1 ${
                   isLight
                     ? "bg-[var(--card)] text-[var(--accent)] font-bold shadow-sm"
@@ -88,7 +88,7 @@ export default function NavbarThemeControl({ compact = false }: NavbarThemeContr
                 <span className="text-[10px]">Light</span>
               </button>
               <button
-                onClick={() => setTheme(theme === "light" ? "original" : theme)}
+                onClick={() => setTheme(isLight ? "original" : theme)}
                 className={`px-2 py-1 rounded-md text-xs transition-all cursor-pointer flex items-center gap-1 ${
                   !isLight
                     ? "bg-[var(--card)] text-[var(--accent)] font-bold shadow-sm"
@@ -133,7 +133,7 @@ export default function NavbarThemeControl({ compact = false }: NavbarThemeContr
                     <div className="min-w-0">
                       <div className="text-xs font-semibold text-[var(--foreground)] flex items-center gap-1.5 truncate">
                         <span>{item.name}</span>
-                        {item.id === "original" && (
+                        {item.id === DEFAULT_THEME && (
                           <span className="text-[9px] px-1.5 py-0.2 rounded bg-[var(--accent)]/20 text-[var(--accent)] font-normal">
                             Default
                           </span>

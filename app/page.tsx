@@ -10,6 +10,8 @@ import ReadingUniverse from "@/components/visual/ReadingUniverse";
 import CategoryPills from "@/components/CategoryPills";
 import BookCard from "@/components/BookCard";
 import SmartRecommendations from "@/components/recommendations/SmartRecommendations";
+import ReadingJourney3D from "@/components/landing/ReadingJourney3D";
+import ReaderFaq from "@/components/landing/ReaderFaq";
 
 export default function HomePage() {
   const [selectedCategory, setSelectedCategory] = useState<Category>("All");
@@ -74,6 +76,9 @@ export default function HomePage() {
     <main className="flex-1">
       {/* 1. Cinematic Hero with Video Background & 3D Floating Books */}
       <HeroVideo onExploreClick={scrollToLibrary} />
+
+      {/* 1b. Interactive 3D Reading Workflow */}
+      <ReadingJourney3D />
 
       {/* 2. Continue Reading (synced with localStorage) */}
       <ContinueReading />
@@ -280,6 +285,9 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* 8. FAQ */}
+      <ReaderFaq />
     </main>
   );
 }

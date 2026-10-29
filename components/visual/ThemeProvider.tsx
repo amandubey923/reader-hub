@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from "react";
 
 export type ThemeMode =
+  | "architect"
   | "original"
   | "light"
   | "dark"
@@ -22,7 +23,20 @@ export interface ThemeConfig {
   icon?: string;
 }
 
+// Applied when a visitor has no saved theme preference
+export const DEFAULT_THEME: ThemeMode = "architect";
+
 export const THEMES: ThemeConfig[] = [
+  {
+    id: "architect",
+    name: "Architect Ivory & Gold",
+    category: "light",
+    primaryColor: "#e8a23a",
+    accentColor: "#1f5f7a",
+    bgPreview: "#f7f4ec",
+    description: "Warm ivory, brushed gold & sapphire slate luxury",
+    icon: "◆",
+  },
   {
     id: "original",
     name: "Original",
@@ -30,7 +44,7 @@ export const THEMES: ThemeConfig[] = [
     primaryColor: "#f59e0b",
     accentColor: "#d97706",
     bgPreview: "#0b0d13",
-    description: "Classic warm amber & dark cinematic baseline (Default)",
+    description: "Classic warm amber & dark cinematic baseline",
     icon: "✦",
   },
   {
@@ -109,20 +123,21 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 const THEME_STORAGE_KEY = "readers_hub_theme_v3";
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<ThemeMode>("original");
+  const [theme, setThemeState] = useState<ThemeMode>(DEFAULT_THEME);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    // A returning reader's explicit choice always wins; only first-time visitors get the default.
     try {
       const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) as ThemeMode | null;
       if (savedTheme && THEMES.some((t) => t.id === savedTheme)) {
         setThemeState(savedTheme);
         document.documentElement.setAttribute("data-theme", savedTheme);
       } else {
-        document.documentElement.setAttribute("data-theme", "original");
+        document.documentElement.setAttribute("data-theme", DEFAULT_THEME);
       }
     } catch {
-      document.documentElement.setAttribute("data-theme", "original");
+      document.documentElement.setAttribute("data-theme", DEFAULT_THEME);
     }
     setMounted(true);
   }, []);
@@ -137,16 +152,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const currentThemeConfig = THEMES.find((t) => t.id === theme) || THEMES[0];
+  const isLight = currentThemeConfig.category === "light";
+
   const toggleLightDark = () => {
-    if (theme === "light") {
+    if (isLight) {
       setTheme("original");
     } else {
-      setTheme("light");
+      setTheme(DEFAULT_THEME);
     }
   };
-
-  const isLight = theme === "light";
-  const currentThemeConfig = THEMES.find((t) => t.id === theme) || THEMES[0];
 
   return (
     <ThemeContext.Provider
