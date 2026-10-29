@@ -14,8 +14,7 @@ export const RAZORPAY_PAYMENTS_ENABLED: boolean =
   process.env.NEXT_PUBLIC_RAZORPAY_PAYMENTS_ENABLED === "true" || false;
 
 /**
- * PRO ENFORCEMENT FEATURE FLAG
- * Temporarily disabled while Razorpay merchant KYC & PAN verification is pending.
+ * PRO ENFORCEMENT FEATURE FLAG — currently ENABLED (free daily AI/translation limits apply, client and server).
  * When false:
  *  - Reader's HUB remains 100% free with ZERO paywall blocks or "upgrade to continue" restrictions.
  *  - Daily translation limits and AI assistant quotas are unrestricted (free unlimited access).

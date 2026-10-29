@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { executeWithKeyRotation, getGeminiKeyPool } from "@/lib/gemini-rotator";
+import { guardAiRequest } from "@/lib/server/ai-guard";
 import {
   tryDeterministicQuery,
   getCompactCatalogSummary,
@@ -11,8 +12,8 @@ export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const userMessage: string = (body?.message || "").trim();
+    const body = await req.json().catch(() => ({}));
+    const userMessage: string = typeof body?.message === "string" ? body.message.trim() : "";
 
     if (!userMessage) {
       return NextResponse.json(
@@ -39,6 +40,14 @@ export async function POST(req: NextRequest) {
     // -------------------------------------------------------------
     // Step 2: GEMINI API GROUNDED INFERENCE (With Key Rotation)
     // -------------------------------------------------------------
+    const guard = await guardAiRequest(req.headers, "chat");
+    if (!guard.allowed) {
+      return NextResponse.json(
+        { reply: guard.message, books: [], suggestedActions: ["Browse categories", "What's available?"] },
+        { status: guard.status, headers: { "Retry-After": String(guard.retryAfterSeconds) } }
+      );
+    }
+
     const keyPool = getGeminiKeyPool();
     if (keyPool.length === 0) {
       return NextResponse.json({

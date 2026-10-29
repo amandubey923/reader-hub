@@ -22,7 +22,6 @@ import {
   DEFAULT_FREE_ENTITLEMENT,
   isEntitlementActive,
 } from "@/lib/entitlements";
-import { syncEntitlementToCloud } from "@/lib/firestore-sync";
 import { doc, onSnapshot } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase";
 
@@ -348,13 +347,9 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
               const verifyData = await verifyRes.json().catch(() => ({}));
 
               if (verifyRes.ok && verifyData.success && verifyData.entitlement) {
+                // The server persists the entitlement; the Firestore listener keeps this in sync
                 const purchasedEntitlement: UserEntitlement = verifyData.entitlement;
                 setEntitlement(purchasedEntitlement);
-
-                // Sync to Firestore if authenticated
-                if (user) {
-                  await syncEntitlementToCloud(user.uid, purchasedEntitlement);
-                }
 
                 setIsCheckoutLoading(false);
                 setIsProModalOpen(false);

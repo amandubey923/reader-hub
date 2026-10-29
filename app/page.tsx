@@ -256,7 +256,6 @@ export default function HomePage() {
                 Distraction-Free PDF Reader
               </h3>
               <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                Read comfortably inside an integrated fullscreen viewer or download copies directly for offline reading on any device.
                 Read comfortably inside an integrated fullscreen viewer or save books for instant offline reading on any device.
               </p>
             </div>
@@ -269,7 +268,7 @@ export default function HomePage() {
                 Privacy &amp; Local Sync
               </h3>
               <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                Your bookmarks and reading history remain securely inside your local browser. Zero tracking and zero data collection.
+                Your bookmarks and reading history stay in your browser. Sign in only if you want them synced to your account across devices.
               </p>
             </div>
           </div>

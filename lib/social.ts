@@ -14,7 +14,8 @@ import {
   serverTimestamp,
   getCountFromServer,
 } from "firebase/firestore";
-import { getFirebaseDb, db, getFirebaseAuth } from "./firebase";
+import { getFirebaseDb, db, getFirebaseAuth, getAuthHeader } from "./firebase";
+import { isAdminUser } from "./admin";
 import { Book, BOOKS } from "@/data/books";
 import { getGenuinelyCompletedBookIds } from "@/lib/reader-storage";
 
@@ -486,7 +487,7 @@ export async function getProfileByUsername(username: string): Promise<PublicUser
 
     // 4. Try querying users collection where username == clean (admin privilege only in firestore.rules)
     const auth = getFirebaseAuth();
-    const isAdmin = auth?.currentUser?.email === "kumaraman19137@gmail.com";
+    const isAdmin = isAdminUser(auth?.currentUser?.email);
     if (isAdmin) {
       try {
         const q = query(
@@ -618,7 +619,7 @@ export async function getProfileByUid(uid: string): Promise<PublicUserProfile | 
   // 4. Fallback to /users/{uid} document ONLY if the current authenticated user owns this document or is admin
   // Private /users/{uid} is strictly restricted in firestore.rules to (request.auth.uid == userId || isAdmin())
   const auth = getFirebaseAuth();
-  const isOwnerOrAdmin = auth?.currentUser?.uid === uid || auth?.currentUser?.email === "kumaraman19137@gmail.com";
+  const isOwnerOrAdmin = auth?.currentUser?.uid === uid || isAdminUser(auth?.currentUser?.email);
   if (isOwnerOrAdmin) {
     try {
       const userRef = doc(currentDb, "users", uid);
@@ -1198,7 +1199,7 @@ export async function followUser(followerUid: string, targetUid: string): Promis
     try {
       const res = await fetch("/api/users/follow", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
         body: JSON.stringify({ followerUid, targetUid, action: "follow" }),
       });
       if (res.ok) {
@@ -1275,7 +1276,7 @@ export async function unfollowUser(followerUid: string, targetUid: string): Prom
     try {
       const res = await fetch("/api/users/follow", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
         body: JSON.stringify({ followerUid, targetUid, action: "unfollow" }),
       });
       if (res.ok) {
@@ -1939,7 +1940,7 @@ export async function syncPublicProfileMetrics(
   // firestore.rules strictly requires: (request.auth.uid == userId || isAdmin())
   const auth = getFirebaseAuth();
   const currentUser = auth?.currentUser;
-  const isAuthorized = currentUser && (currentUser.uid === uid || currentUser.email === "kumaraman19137@gmail.com");
+  const isAuthorized = currentUser && (currentUser.uid === uid || isAdminUser(currentUser.email));
   if (!isAuthorized) {
     return;
   }

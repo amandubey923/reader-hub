@@ -6,6 +6,7 @@ import Link from "next/link";
 import { AssistantBook } from "@/lib/library-assistant";
 import { useLibrary } from "@/context/LibraryContext";
 import { useEntitlement } from "@/context/EntitlementContext";
+import { getAuthHeader } from "@/lib/firebase";
 
 interface Message {
   id: string;
@@ -90,9 +91,25 @@ export default function LibraryAssistant() {
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
         body: JSON.stringify({ message: textToSend }),
       });
+
+      // Rate-limit responses carry a user-facing reply
+      if (res.status === 429) {
+        const limited = await res.json().catch(() => null);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `limit-${Date.now()}`,
+            sender: "assistant",
+            text: limited?.reply || "Too many requests. Please wait a moment and try again.",
+            suggestedActions: limited?.suggestedActions || ["Browse categories"],
+            timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          },
+        ]);
+        return;
+      }
 
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
 

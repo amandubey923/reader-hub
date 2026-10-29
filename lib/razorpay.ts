@@ -21,7 +21,54 @@ export function getRazorpayKeys() {
     keySecret !== "rzp_secret_placeholder"
   );
 
-  return { keyId, keySecret, webhookSecret, isConfigured };
+  const isWebhookConfigured = Boolean(webhookSecret && webhookSecret !== "rzp_webhook_placeholder");
+
+  return { keyId, keySecret, webhookSecret, isConfigured, isWebhookConfigured };
+}
+
+/**
+ * Simulated orders are only ever honoured in local development with placeholder credentials.
+ */
+export function isSimulatedPaymentModeAllowed(): boolean {
+  return !getRazorpayKeys().isConfigured && process.env.NODE_ENV !== "production";
+}
+
+export interface RazorpayOrderDetails {
+  id: string;
+  amount: number;
+  currency: string;
+  status: string;
+  notes: Record<string, string>;
+}
+
+/**
+ * Fetches the authoritative order record from Razorpay so plan and amount are never taken from the client.
+ */
+export async function fetchRazorpayOrder(orderId: string): Promise<RazorpayOrderDetails | null> {
+  const { keyId, keySecret, isConfigured } = getRazorpayKeys();
+  if (!isConfigured || !/^order_[A-Za-z0-9]+$/.test(orderId)) return null;
+
+  try {
+    const authHeader = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
+    const res = await fetch(`https://api.razorpay.com/v1/orders/${encodeURIComponent(orderId)}`, {
+      headers: { Authorization: `Basic ${authHeader}` },
+    });
+    if (!res.ok) {
+      console.warn("[Razorpay] Order lookup returned status:", res.status);
+      return null;
+    }
+    const order = await res.json();
+    return {
+      id: order.id,
+      amount: Number(order.amount) || 0,
+      currency: order.currency,
+      status: order.status,
+      notes: order.notes && typeof order.notes === "object" ? order.notes : {},
+    };
+  } catch (err) {
+    console.error("[Razorpay] Order lookup error:", err);
+    return null;
+  }
 }
 
 export interface CreateOrderParams {
@@ -127,9 +174,12 @@ export function verifyPaymentSignature(
 
   const { keySecret, isConfigured } = getRazorpayKeys();
 
-  // Test mode simulation verification
-  if (!isConfigured && orderId.startsWith("order_test_")) {
-    return signature.startsWith("sig_test_") || signature.length >= 10;
+  if (!isConfigured) {
+    // Local development simulation only; never accepted in production or with real keys
+    if (isSimulatedPaymentModeAllowed() && orderId.startsWith("order_test_")) {
+      return signature.startsWith("sig_test_");
+    }
+    return false;
   }
 
   try {
@@ -161,10 +211,11 @@ export function verifyWebhookSignature(
 ): boolean {
   if (!rawBody || !webhookSignature) return false;
 
-  const { webhookSecret, isConfigured } = getRazorpayKeys();
+  const { webhookSecret, isWebhookConfigured } = getRazorpayKeys();
 
-  if (!isConfigured) {
-    return true;
+  // Fail closed: without a real webhook secret no event can be authenticated
+  if (!isWebhookConfigured) {
+    return false;
   }
 
   try {

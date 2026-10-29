@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
+import { escapeHtml } from "@/lib/server/escape-html";
 
 export const runtime = "nodejs";
 
@@ -39,10 +40,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const cleanName = name.trim();
+    if (name.length > 120 || email.length > 254 || message.length > 5000 || (subject && String(subject).length > 200)) {
+      return NextResponse.json(
+        { success: false, error: "Your message is too long. Please shorten it and try again." },
+        { status: 400 }
+      );
+    }
+
+    // Header-safe plain values (no line breaks) and HTML-escaped copies for the email body
+    const cleanName = name.trim().replace(/[\r\n]+/g, " ");
     const cleanEmail = email.trim();
-    const cleanSubject = (subject || "Book Recommendation / Reader Feedback").trim();
+    const cleanSubject = (typeof subject === "string" && subject.trim() ? subject : "Book Recommendation / Reader Feedback")
+      .trim()
+      .replace(/[\r\n]+/g, " ");
     const cleanMessage = message.trim();
+    const htmlName = escapeHtml(cleanName);
+    const htmlEmail = escapeHtml(cleanEmail);
+    const htmlSubject = escapeHtml(cleanSubject);
+    const htmlMessage = escapeHtml(cleanMessage);
     const timestamp = new Date().toLocaleString("en-US", { timeZoneName: "short" });
 
     // Safe debugging log (Never log secret values)
@@ -85,26 +100,26 @@ export async function POST(req: NextRequest) {
           <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
             <tr>
               <td style="padding: 6px 0; color: #64748b; width: 80px; font-weight: 600;">Sender:</td>
-              <td style="padding: 6px 0; color: #0f172a; font-weight: bold;">${cleanName}</td>
+              <td style="padding: 6px 0; color: #0f172a; font-weight: bold;">${htmlName}</td>
             </tr>
             <tr>
               <td style="padding: 6px 0; color: #64748b; font-weight: 600;">Email:</td>
-              <td style="padding: 6px 0; color: #2563eb;"><a href="mailto:${cleanEmail}" style="color: #2563eb; text-decoration: none;">${cleanEmail}</a></td>
+              <td style="padding: 6px 0; color: #2563eb;"><a href="mailto:${htmlEmail}" style="color: #2563eb; text-decoration: none;">${htmlEmail}</a></td>
             </tr>
             <tr>
               <td style="padding: 6px 0; color: #64748b; font-weight: 600;">Topic:</td>
-              <td style="padding: 6px 0; color: #0f172a;">${cleanSubject}</td>
+              <td style="padding: 6px 0; color: #0f172a;">${htmlSubject}</td>
             </tr>
           </table>
 
           <div style="padding: 16px; background-color: #f8fafc; border-left: 4px solid #f59e0b; border-radius: 8px; margin-bottom: 24px;">
             <h4 style="margin: 0 0 8px 0; color: #334155; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">Message Content:</h4>
-            <p style="margin: 0; color: #1e293b; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${cleanMessage}</p>
+            <p style="margin: 0; color: #1e293b; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${htmlMessage}</p>
           </div>
 
           <div style="border-top: 1px solid #e2e8f0; padding-top: 16px; text-align: center;">
             <p style="font-size: 11px; color: #94a3b8; margin: 0;">
-              Sent via Reader's HUB Contact API to <strong>${RECIPIENT_EMAIL}</strong> • Reply directly to this email to respond to ${cleanName}.
+              Sent via Reader's HUB Contact API to <strong>${RECIPIENT_EMAIL}</strong> • Reply directly to this email to respond to ${htmlName}.
             </p>
           </div>
         </div>

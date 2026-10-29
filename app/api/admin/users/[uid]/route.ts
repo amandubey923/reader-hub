@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyFirebaseIdToken } from "@/lib/entitlements";
 import { getFirebaseAdminFirestore } from "@/lib/firebase-admin";
-import { isAdminUser } from "@/lib/admin";
+import { requireAdmin } from "@/lib/server/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -15,17 +14,10 @@ export async function GET(
       return NextResponse.json({ error: "Missing uid parameter." }, { status: 400 });
     }
 
-    // Admin token verification if provided
-    const authHeader = req.headers.get("authorization");
-    if (authHeader && authHeader.startsWith("Bearer ")) {
-      const idToken = authHeader.replace("Bearer ", "").trim();
-      const verified = await verifyFirebaseIdToken(idToken);
-      if (verified && !isAdminUser(verified.email)) {
-        return NextResponse.json(
-          { error: "Forbidden. Authorized administrator access required." },
-          { status: 403 }
-        );
-      }
+    // Admin token is mandatory: private reading data must never be served to anonymous callers
+    const adminCheck = await requireAdmin(req.headers.get("authorization"));
+    if (!adminCheck.ok) {
+      return NextResponse.json({ error: adminCheck.error }, { status: adminCheck.status });
     }
 
     const adminDb = getFirebaseAdminFirestore();

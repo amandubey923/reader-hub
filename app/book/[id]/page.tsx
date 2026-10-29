@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Metadata } from "next";
 import { BOOKS, getBookById, getRelatedBooks } from "@/data/books";
 import BookDetailClient from "./BookDetailClient";
+import { getAffiliateInfoForBook } from "@/lib/affiliate-config";
 
 interface BookPageProps {
   params: Promise<{ id: string }>;
@@ -52,7 +53,8 @@ export default async function BookPage({ params }: BookPageProps) {
   }
 
   const related = getRelatedBooks(book, 4);
+  const affiliateInfo = getAffiliateInfoForBook(book);
 
-  return <BookDetailClient book={book} relatedBooks={related} />;
+  return <BookDetailClient book={book} relatedBooks={related} affiliateInfo={affiliateInfo} />;
 }
 

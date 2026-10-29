@@ -38,8 +38,9 @@ export async function POST(req: NextRequest) {
 
     const orderResult = await createRazorpayOrder({
       planId,
-      userId: verifiedUser?.uid || body?.userId || "anonymous",
-      userEmail: verifiedUser?.email || body?.userEmail || "",
+      // Order ownership is bound to the verified caller only; client-supplied IDs are ignored
+      userId: verifiedUser?.uid || "anonymous",
+      userEmail: verifiedUser?.email || "",
       userName: body?.userName || "",
     });
 

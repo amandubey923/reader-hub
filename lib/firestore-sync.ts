@@ -9,6 +9,12 @@ import {
   writeBatch,
   deleteDoc,
   updateDoc,
+  arrayRemove,
+  query,
+  where,
+  Firestore,
+  DocumentReference,
+  WriteBatch,
 } from "firebase/firestore";
 import { db, getFirebaseDb } from "./firebase";
 import {
@@ -37,7 +43,15 @@ import {
   getGenuinelyCompletedBookIds,
   getAllReadingMemories,
   migrateGuestDataToUser,
+  getAllBookmarks,
+  getAllBookAnnotations,
 } from "./reader-storage";
+import {
+  annotationsAddContent,
+  mergeAnnotations,
+  mergeBookmarkLists,
+  mergeProgressItems,
+} from "./reading-merge";
 import { UserEntitlement, DEFAULT_FREE_ENTITLEMENT } from "./entitlements";
 import { BOOKS, getBookById } from "@/data/books";
 
@@ -53,6 +67,7 @@ export interface CloudFullUserData {
   shelfDismissals: ShelfDismissalsMap;
   completedBookIds?: string[];
   entitlement?: UserEntitlement;
+  bookmarks?: Record<string, BookmarkItem[]>;
 }
 
 // In-memory debounce timers for non-blocking background writes
@@ -65,6 +80,21 @@ const reflectionsDebounceTimers: Record<string, NodeJS.Timeout> = {};
 const dismissalsDebounceTimers: Record<string, NodeJS.Timeout> = {};
 const annotationsDebounceTimers: Record<string, NodeJS.Timeout> = {};
 const bookmarksDebounceTimers: Record<string, NodeJS.Timeout> = {};
+
+// Firestore rejects batches larger than 500 writes
+const MAX_BATCH_WRITES = 450;
+
+async function commitInChunks(
+  firestore: Firestore,
+  refs: DocumentReference[],
+  apply: (batch: WriteBatch, ref: DocumentReference) => void
+): Promise<void> {
+  for (let i = 0; i < refs.length; i += MAX_BATCH_WRITES) {
+    const batch = writeBatch(firestore);
+    refs.slice(i, i + MAX_BATCH_WRITES).forEach((ref) => apply(batch, ref));
+    await batch.commit();
+  }
+}
 
 /**
  * Cancel and clear all pending debounced background synchronization timers.
@@ -299,6 +329,15 @@ export async function fetchFullCloudUserData(uid: string): Promise<CloudFullUser
         defaultResult.entitlement = entData as UserEntitlement;
       }
     }
+    // 10b. Fetch Cloud Bookmarks ({ bookmarks: { [bookId]: BookmarkItem[] } })
+    const bookmarksDocSnap = await getDoc(doc(currentDb, "users", uid, "data", "bookmarks"));
+    if (bookmarksDocSnap.exists()) {
+      const bmData = bookmarksDocSnap.data();
+      if (bmData && bmData.bookmarks && typeof bmData.bookmarks === "object") {
+        defaultResult.bookmarks = bmData.bookmarks;
+      }
+    }
+
     // 11. Fetch Cloud Completed Books
     const completedDocRef = doc(currentDb, "users", uid, "data", "completed_books");
     const completedDocSnap = await getDoc(completedDocRef);
@@ -313,23 +352,6 @@ export async function fetchFullCloudUserData(uid: string): Promise<CloudFullUser
   }
 
   return defaultResult;
-}
-
-/**
- * Persist verified entitlement to Firestore under /users/{uid}/data/entitlement
- */
-export async function syncEntitlementToCloud(
-  uid: string,
-  entitlement: UserEntitlement
-): Promise<void> {
-  const currentDb = getFirebaseDb() || db;
-  if (!currentDb || !uid || !entitlement) return;
-  try {
-    const entRef = doc(currentDb, "users", uid, "data", "entitlement");
-    await setDoc(entRef, entitlement, { merge: true });
-  } catch (err) {
-    console.warn("[Firestore] Failed to sync entitlement to cloud:", err);
-  }
 }
 
 /**
@@ -403,7 +425,7 @@ export async function reconcileAndSyncAllUserData(user: User): Promise<CloudFull
     // Safeguard reading activity and streak data:
     // Read local reading activity strictly for this user.uid
     const localActivity = getReadingActivityData(user.uid);
-    let cloudDaily = cloudData.readingActivity?.daily || {};
+    const cloudDaily = cloudData.readingActivity?.daily || {};
     const localDaily = localActivity?.daily || {};
 
     // Merge strictly this user's local and cloud activity
@@ -469,19 +491,10 @@ export async function reconcileAndSyncAllUserData(user: User): Promise<CloudFull
         historyMap.set(localItem.bookId, localItem);
         syncReadingProgressToCloud(user.uid, localItem.bookId, localItem.page, localItem.totalPages);
       } else {
-        const higherPage = Math.max(localItem.page || 0, existing.page || 0);
-        const latestTime = Math.max(localItem.lastReadAt || 0, existing.lastReadAt || 0);
-        const total = localItem.totalPages || existing.totalPages || 100;
-        const higherProgress = Math.min(100, Math.round((higherPage / total) * 100));
-        historyMap.set(localItem.bookId, {
-          bookId: localItem.bookId,
-          page: higherPage,
-          totalPages: total,
-          progress: higherProgress,
-          lastReadAt: latestTime,
-        });
-        if (higherPage > (existing.page || 0)) {
-          syncReadingProgressToCloud(user.uid, localItem.bookId, higherPage, total);
+        const merged = mergeProgressItems(existing, localItem);
+        historyMap.set(localItem.bookId, merged);
+        if (merged.page > (existing.page || 0) || merged.totalPages !== existing.totalPages) {
+          syncReadingProgressToCloud(user.uid, localItem.bookId, merged.page, merged.totalPages);
         }
       }
     });
@@ -597,6 +610,30 @@ export async function reconcileAndSyncAllUserData(user: User): Promise<CloudFull
       lastUpdated: Math.max(localActive.lastUpdated || 0, cloudActive.lastUpdated || 0),
     };
 
+    // 8b. Two-way merge for bookmarks: upload anything local that the cloud is missing
+    const localBookmarks = getAllBookmarks(user.uid);
+    const cloudBookmarks = cloudData.bookmarks || {};
+    const mergedBookmarks: Record<string, BookmarkItem[]> = {};
+    new Set([...Object.keys(localBookmarks), ...Object.keys(cloudBookmarks)]).forEach((bookId) => {
+      const cloudList = Array.isArray(cloudBookmarks[bookId]) ? cloudBookmarks[bookId] : [];
+      const merged = mergeBookmarkLists(cloudList, localBookmarks[bookId] || []);
+      mergedBookmarks[bookId] = merged;
+      if (merged.length > cloudList.length) {
+        syncBookmarksToCloud(user.uid, bookId, merged);
+      }
+    });
+    cloudData.bookmarks = mergedBookmarks;
+
+    // 8c. Upload local-only annotations (e.g. made as a guest before signing in) that the cloud lacks
+    const localAnnotations = getAllBookAnnotations(user.uid);
+    Object.entries(localAnnotations).forEach(([bookId, localAnn]) => {
+      const cloudAnn = cloudData.annotations?.[bookId];
+      if (annotationsAddContent(cloudAnn, localAnn)) {
+        const { bookmarks: _bm, ...merged } = mergeAnnotations(cloudAnn, localAnn);
+        syncAnnotationsToCloud(user.uid, bookId, merged as BookAnnotations);
+      }
+    });
+
     // 9. Hydrate local in-memory storage caches with authoritative merged cloud state
     hydrateStorageFromCloudData(cloudData, user.uid);
 
@@ -676,6 +713,12 @@ export async function deleteCloudBookProgress(uid: string, bookId: string): Prom
     }
     const progDocRef = doc(currentDb, "users", uid, "reading_progress", bookId);
     await deleteDoc(progDocRef);
+
+    // Without this the completed-books union merge re-creates the deleted progress at 100% on next sync
+    await updateDoc(doc(currentDb, "users", uid, "data", "completed_books"), {
+      completedIds: arrayRemove(bookId),
+      lastUpdated: Date.now(),
+    }).catch(() => {});
 
     // Keep public_profiles stats in immediate sync
     try {
@@ -1006,50 +1049,6 @@ export function syncShelfDismissalsToCloud(
 }
 
 /**
- * Backwards-compatibility wrapper for legacy callers
- */
-export async function fetchCloudUserData(uid: string): Promise<{ favorites: string[]; progress: Record<string, number> }> {
-  const full = await fetchFullCloudUserData(uid);
-  const progress: Record<string, number> = {};
-  full.readingHistory.forEach((i) => {
-    progress[i.bookId] = i.page;
-  });
-  return {
-    favorites: full.favorites,
-    progress,
-  };
-}
-
-/**
- * Backwards-compatibility wrapper for legacy callers
- */
-export async function migrateLocalStateToCloud(
-  uid: string,
-  localFavorites: string[],
-  localProgress: Record<string, number>
-): Promise<void> {
-  const currentDb = getFirebaseDb() || db;
-  if (!currentDb || !uid) return;
-  try {
-    const { writeBatch, doc, serverTimestamp } = await import("firebase/firestore");
-    const batch = writeBatch(currentDb);
-    for (const bookId of localFavorites) {
-      if (!bookId) continue;
-      const favRef = doc(currentDb, "users", uid, "favorites", bookId);
-      batch.set(favRef, { bookId, favoritedAt: serverTimestamp() }, { merge: true });
-    }
-    for (const [bookId, page] of Object.entries(localProgress)) {
-      if (!bookId || typeof page !== "number") continue;
-      const progRef = doc(currentDb, "users", uid, "reading_progress", bookId);
-      batch.set(progRef, { bookId, page, lastReadAt: serverTimestamp() }, { merge: true });
-    }
-    await batch.commit();
-  } catch (e) {
-    console.warn("[Firestore] Legacy migration notice:", e);
-  }
-}
-
-/**
  * Permanently delete all reading progress documents from /users/{uid}/reading_progress
  */
 export async function deleteCloudReadingProgress(uid: string): Promise<boolean> {
@@ -1059,11 +1058,9 @@ export async function deleteCloudReadingProgress(uid: string): Promise<boolean> 
     cancelAllPendingSyncTimers();
     const progRef = collection(currentDb, "users", uid, "reading_progress");
     const snap = await getDocs(progRef);
-    if (!snap.empty) {
-      const batch = writeBatch(currentDb);
-      snap.forEach((d) => batch.delete(d.ref));
-      await batch.commit();
-    }
+    await commitInChunks(currentDb, snap.docs.map((d) => d.ref), (batch, ref) => batch.delete(ref));
+    // Completed-book IDs are derived from progress; clear them too so they are not resurrected
+    await setDoc(doc(currentDb, "users", uid, "data", "completed_books"), { completedIds: [], lastUpdated: Date.now() });
     const pubRef = doc(currentDb, "public_profiles", uid);
     await updateDoc(pubRef, {
       "stats.booksCompleted": 0,
@@ -1164,40 +1161,36 @@ export async function permanentFactoryResetCloudData(uid: string): Promise<boole
     const progRef = collection(currentDb, "users", uid, "reading_progress");
     const progSnap = await getDocs(progRef);
 
+    await commitInChunks(
+      currentDb,
+      [...favsSnap.docs, ...progSnap.docs].map((d) => d.ref),
+      (batch, ref) => batch.delete(ref)
+    );
+
+    // 3. Reset all user data subdocuments in users/{uid}/data/* (the entitlement doc is intentionally kept)
+    const dataDoc = (name: string) => doc(currentDb, "users", uid, "data", name);
     const batch = writeBatch(currentDb);
-    favsSnap.forEach((d) => batch.delete(d.ref));
-    progSnap.forEach((d) => batch.delete(d.ref));
-
-    // 3. Reset all user data subdocuments in users/{uid}/data/*
-    const actRef = doc(currentDb, "users", uid, "data", "activity");
-    const atRef = doc(currentDb, "users", uid, "data", "active_time");
-    const memRef = doc(currentDb, "users", uid, "data", "reading_memory");
-    const annRef = doc(currentDb, "users", uid, "data", "annotations");
-    const colRef = doc(currentDb, "users", uid, "data", "collections");
-    const refRef = doc(currentDb, "users", uid, "data", "reflections");
-    const dismRef = doc(currentDb, "users", uid, "data", "shelf_dismissals");
-
-    batch.set(actRef, { daily: {}, currentStreak: 0, longestStreak: 0, lastQualifiedDate: null });
-    batch.set(atRef, { totalActiveSeconds: 0, daily: {}, explorationDaily: {}, totalExplorationSeconds: 0, lastUpdated: Date.now() });
-    batch.set(memRef, { memories: {} });
-    batch.set(annRef, { annotations: {} });
-    batch.set(colRef, { collections: [] });
-    batch.set(refRef, { reflections: {} });
-    batch.set(dismRef, { shelfDismissals: {} });
+    batch.set(dataDoc("activity"), { daily: {}, currentStreak: 0, longestStreak: 0, lastQualifiedDate: null });
+    batch.set(dataDoc("active_time"), { totalActiveSeconds: 0, daily: {}, explorationDaily: {}, totalExplorationSeconds: 0, lastUpdated: Date.now() });
+    batch.set(dataDoc("reading_memory"), { memories: {} });
+    batch.set(dataDoc("annotations"), { annotations: {} });
+    batch.set(dataDoc("bookmarks"), { bookmarks: {} });
+    batch.set(dataDoc("collections"), { collections: [] });
+    batch.set(dataDoc("reflections"), { reflections: {} });
+    batch.set(dataDoc("shelf_dismissals"), { dismissals: {} });
+    // Without these, the union merge on next sign-in resurrects completed books and certificates
+    batch.set(dataDoc("completed_books"), { completedIds: [], lastUpdated: Date.now() });
+    batch.set(dataDoc("certificates"), {});
+    batch.set(doc(currentDb, "users", uid, "backups", "latest"), { readingActivity: { daily: {}, currentStreak: 0, longestStreak: 0, lastQualifiedDate: null }, backupTimestamp: Date.now() });
 
     await batch.commit();
 
-    // 3.5 Delete all public activity events for this user
+    // 3.5 Delete this user's public activity events (stored in the top-level public_activities collection)
     try {
-      const actFeedRef = collection(currentDb, "users", uid, "public_activity");
-      const actFeedSnap = await getDocs(actFeedRef);
-      if (!actFeedSnap.empty) {
-        const actBatch = writeBatch(currentDb);
-        actFeedSnap.forEach((d) => actBatch.delete(d.ref));
-        await actBatch.commit();
-      }
+      const actFeedSnap = await getDocs(query(collection(currentDb, "public_activities"), where("uid", "==", uid)));
+      await commitInChunks(currentDb, actFeedSnap.docs.map((d) => d.ref), (b, ref) => b.delete(ref));
     } catch (actErr) {
-      console.warn("[Firestore] Notice deleting public_activity on reset:", actErr);
+      console.warn("[Firestore] Notice deleting public activities on reset:", actErr);
     }
 
     // 4. Update Public Profile Stats & reset achievements

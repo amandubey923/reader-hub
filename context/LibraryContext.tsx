@@ -113,6 +113,7 @@ import {
 } from "@/lib/certificate";
 import CompletionCertificateModal from "@/components/certificate/CompletionCertificateModal";
 import { touchUserLastActive } from "@/lib/active-tracker";
+import { computeReadingProgress } from "@/lib/reading-merge";
 
 export interface ReadingProgressItem {
   bookId: string;
@@ -225,6 +226,8 @@ interface LibraryContextType {
 }
 
 const LibraryContext = createContext<LibraryContextType | undefined>(undefined);
+
+const BOOKS_BY_ID = new Map(BOOKS.map((b) => [b.id, b]));
 
 const FAVORITES_KEY = "readers_hub_favorites_v2";
 const HISTORY_KEY = "readers_hub_reading_progress_v2";
@@ -791,86 +794,58 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const isFavorite = useCallback((bookId: string) => favorites.includes(bookId), [favorites]);
 
-  const recordReading = useCallback((bookId: string, page = 1, totalPages = 100) => {
-    let hasChanged = false;
-    let finalPage = page;
-    let finalTotal = totalPages;
-    let isNewCompletion = false;
-    let updatedHistoryList: ReadingProgressItem[] = [];
+  const recordReading = useCallback((bookId: string, page?: number, totalPages?: number) => {
+    if (!bookId) return;
 
-    const targetCatalogBook = BOOKS.find((b) => b.id === bookId);
-    const catalogPages = Number(targetCatalogBook?.pages) || 0;
+    // Computed synchronously from the latest committed history (no side effects inside setState updaters)
+    const prevHistory = readingHistoryRef.current;
+    const existing = prevHistory.find((item) => item.bookId === bookId);
+    const catalogPages = Number(BOOKS.find((b) => b.id === bookId)?.pages) || 0;
+    const { item, changed, isNewCompletion: reachedEnd } = computeReadingProgress(
+      existing,
+      bookId,
+      page,
+      totalPages,
+      catalogPages
+    );
+    const finalPage = item.page;
+    const finalTotal = item.totalPages;
 
-    setReadingHistory((prev) => {
-      const existing = prev.find((item) => item.bookId === bookId);
-      const curPage = page > 1 ? page : (existing ? existing.page : 1);
-      const curTotal = (totalPages && totalPages > 0)
-        ? totalPages
-        : (existing?.totalPages && existing.totalPages > 0)
-        ? existing.totalPages
-        : (catalogPages > 0 ? catalogPages : 100);
+    let updatedHistoryList: ReadingProgressItem[] = prevHistory;
+    if (changed) {
+      updatedHistoryList = [item, ...prevHistory.filter((h) => h.bookId !== bookId)];
+      readingHistoryRef.current = updatedHistoryList;
+      saveStoredReadingHistory(updatedHistoryList, user?.uid);
+      setReadingHistory(updatedHistoryList);
+    }
 
-      finalPage = curPage;
-      finalTotal = curTotal;
-      const progress = curTotal > 0 ? Math.min(100, Math.round((curPage / curTotal) * 100)) : 0;
-      
-      const wasCompleted = Boolean(existing && curTotal > 0 && existing.page >= curTotal);
-      const isNowCompleted = Boolean(curTotal > 0 && curPage >= curTotal);
-
-      if (!wasCompleted && isNowCompleted) {
-        isNewCompletion = true;
-      }
-
-      // Avoid unnecessary state update if progress, page, and totalPages are identical
-      if (
-        existing &&
-        existing.page === curPage &&
-        existing.totalPages === curTotal &&
-        existing.progress === progress
-      ) {
-        return prev;
-      }
-
-      hasChanged = true;
-      const filtered = prev.filter((item) => item.bookId !== bookId);
-      const newItem: ReadingProgressItem = {
-        bookId,
-        page: curPage,
-        totalPages: curTotal,
-        progress,
-        lastReadAt: Date.now(),
-      };
-
-      const updated = [newItem, ...filtered];
-      updatedHistoryList = updated;
-      saveStoredReadingHistory(updated, user?.uid);
-      return updated;
-    });
-
-    if (bookId) {
-      restoreBookToShelf("reading", bookId);
-      restoreBookToShelf("spotlight", bookId);
+    // Opening a book brings it back to shelf sections the reader had dismissed it from
+    if (isBookDismissedFromShelf("reading", bookId, user?.uid) || isBookDismissedFromShelf("spotlight", bookId, user?.uid)) {
+      restoreBookToShelf("reading", bookId, user?.uid);
+      restoreBookToShelf("spotlight", bookId, user?.uid);
       setShelfDismissals(getShelfDismissals(user?.uid));
     }
 
-    if (user) {
-      syncReadingProgressToCloud(user.uid, bookId, finalPage, finalTotal);
+    // A book earns one completion (certificate + public activity), even if it is finished again later
+    const isNewCompletion = reachedEnd && !getStoredBookCertificate(bookId, user?.uid);
 
-      // Record public reading activity if book is completed
-      if (finalPage >= finalTotal && finalTotal > 0) {
-        const targetBook = BOOKS.find((b) => b.id === bookId);
-        recordPublicActivity({
-          uid: user.uid,
-          username: user.displayName ? sanitizeUsername(user.displayName) : "reader",
-          displayName: user.displayName || "Reader",
-          photoURL: user.photoURL || undefined,
-          type: "completed_book",
-          bookId,
-          bookTitle: targetBook?.title || "Book",
-          bookCover: targetBook?.cover,
-          timestamp: Date.now(),
-        });
-      }
+    if (user && changed) {
+      syncReadingProgressToCloud(user.uid, bookId, finalPage, finalTotal);
+    }
+
+    if (user && isNewCompletion) {
+      const targetBook = BOOKS.find((b) => b.id === bookId);
+      recordPublicActivity({
+        uid: user.uid,
+        username: user.displayName ? sanitizeUsername(user.displayName) : "reader",
+        displayName: user.displayName || "Reader",
+        photoURL: user.photoURL || undefined,
+        type: "completed_book",
+        bookId,
+        bookTitle: targetBook?.title || "Book",
+        bookCover: targetBook?.cover,
+        timestamp: Date.now(),
+      });
     }
 
     // Verified Book Completion: Concur Certificate & Recalculate Achievements Immediately
@@ -952,7 +927,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    if (hasChanged) {
+    if (changed) {
       refreshStats();
     }
   }, [collections.length, refreshStats, user]);
@@ -1104,16 +1079,32 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   }, [showToast]);
 
   // Backup & Export Helpers
-  const exportData = useCallback(() => exportAllUserData(), []);
+  const exportData = useCallback(() => exportAllUserData(user?.uid ?? null), [user]);
 
   const handleImportData = useCallback((jsonStr: string) => {
-    const res = importUserData(jsonStr);
+    // Restore into the signed-in reader's namespace (or guest), merging with existing data
+    const res = importUserData(jsonStr, user?.uid ?? null);
     if (res.success) {
-      const favs = getStoredFavorites(user?.uid);
-      if (favs) setFavorites(favs);
-      const hist = getStoredReadingHistory(user?.uid);
-      if (hist) setReadingHistory(hist);
-      refreshStats();
+      const favs = getStoredFavorites(user?.uid ?? null);
+      setFavorites(favs);
+      const hist = getStoredReadingHistory(user?.uid ?? null);
+      setReadingHistory(hist);
+      setCollections(getReadingCollections(user?.uid ?? null));
+      setReadingMemories(getAllReadingMemories(user?.uid ?? null));
+      refreshStats(hist, favs);
+
+      // Push restored data to the reader's cloud account through the normal merge
+      if (user) {
+        reconcileAndSyncAllUserData(user)
+          .then((cloudData) => {
+            setFavorites(cloudData.favorites);
+            setReadingHistory(cloudData.readingHistory);
+            setStreakData(cloudData.readingActivity);
+            setReadingMemories(cloudData.readingMemories || {});
+            refreshStats(cloudData.readingHistory, cloudData.favorites, cloudData.readingActivity, cloudData.activeTime);
+          })
+          .catch((err) => console.warn("[LibraryContext] Post-import sync note:", err));
+      }
     }
     showToast(res.message);
     return res;
@@ -1268,26 +1259,34 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     return mem;
   }, [user]);
 
-  // Derive actual book objects
-  const favoriteBooks = mounted
-    ? favorites
-        .map((id) => BOOKS.find((b) => b.id === id))
-        .filter((b): b is Book => Boolean(b))
-    : [];
+  // Derive actual book objects (memoized so the context value stays stable between unrelated renders)
+  const favoriteBooks = useMemo(
+    () =>
+      mounted
+        ? favorites
+            .map((id) => BOOKS_BY_ID.get(id))
+            .filter((b): b is Book => Boolean(b))
+        : [],
+    [mounted, favorites]
+  );
 
-  const recentBooks: RecentBook[] = mounted
-    ? (readingHistory
-        .map((item) => {
-          const book = BOOKS.find((b) => b.id === item.bookId);
-          if (!book) return null;
-          return {
-            ...book,
-            progress: item.progress,
-            lastPage: item.page,
-          };
-        })
-        .filter(Boolean) as RecentBook[])
-    : [];
+  const recentBooks: RecentBook[] = useMemo(
+    () =>
+      mounted
+        ? (readingHistory
+            .map((item) => {
+              const book = BOOKS_BY_ID.get(item.bookId);
+              if (!book) return null;
+              return {
+                ...book,
+                progress: item.progress,
+                lastPage: item.page,
+              };
+            })
+            .filter(Boolean) as RecentBook[])
+        : [],
+    [mounted, readingHistory]
+  );
 
   const todayKey = getLocalDateKey();
   const todaySeconds = streakData.daily[todayKey]?.seconds || 0;

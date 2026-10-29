@@ -107,7 +107,7 @@ export function tryDeterministicQuery(query: string): AssistantResponse | null {
   ) {
     const list = ALL_CATEGORIES.map((c) => `• **${c}**`).join("\n");
     return {
-      reply: `Here are the 8 literary categories available in Reader's HUB:\n\n${list}`,
+      reply: `Here are the ${ALL_CATEGORIES.length} categories available in Reader's HUB:\n\n${list}`,
       books: [],
       suggestedActions: ALL_CATEGORIES.slice(0, 4),
       isDeterministic: true,
@@ -190,13 +190,14 @@ export function tryDeterministicQuery(query: string): AssistantResponse | null {
     }
   }
 
-  // 7. Category and Recommendation Search with broad stem matching
+  // 7. Category and Recommendation Search with broad stem matching (keys must be real catalog categories)
   const categoryStems: Record<string, string[]> = {
     "Philosophy & Spirituality": ["philosoph", "spirit", "stoic", "zen", "meditat", "mind"],
-    "Classics": ["classic", "vintage", "ancient", "antiquity"],
+    "Classics & Literature": ["classic", "vintage", "ancient", "antiquity"],
     "Hindi Literature": ["hindi", "premchand", "upanyas", "kahani", "sahitya"],
-    "Self-Development": ["self-dev", "habit", "productiv", "psycholog", "growth", "discipline"],
-    "Business": ["business", "money", "invest", "finance", "wealth"],
+    "Psychology & Self-Development": ["self-dev", "self dev", "habit", "productiv", "psycholog", "growth", "discipline"],
+    "Business & Management": ["business", "management", "startup", "leadership"],
+    "Economics & Finance": ["money", "invest", "finance", "wealth", "econom"],
     "Fiction & Dystopian": ["fiction", "dystop", "novel", "story", "stories"],
     "Fantasy & Adventure": ["fantasy", "adventure", "magic", "journey"],
     "Romance": ["romance", "love", "romantic", "heart"],
@@ -204,8 +205,8 @@ export function tryDeterministicQuery(query: string): AssistantResponse | null {
 
   for (const [catName, stems] of Object.entries(categoryStems)) {
     const matchesStem = stems.some((stem) => q.includes(stem));
-    if (matchesStem) {
-      const catBooks = ALL_BOOKS.filter((b) => b.category === catName);
+    const catBooks = ALL_BOOKS.filter((b) => b.category === catName);
+    if (matchesStem && catBooks.length > 0) {
       return {
         reply: `Here are recommended **${catName}** volumes available in Reader's HUB:`,
         books: catBooks.slice(0, 6),

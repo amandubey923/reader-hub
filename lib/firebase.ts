@@ -66,6 +66,18 @@ export function getGoogleProvider(): GoogleAuthProvider {
   return googleProvider;
 }
 
+/**
+ * Authorization header for the signed-in reader, or an empty object for guests.
+ */
+export async function getAuthHeader(): Promise<Record<string, string>> {
+  try {
+    const token = await getFirebaseAuth()?.currentUser?.getIdToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  } catch {
+    return {};
+  }
+}
+
 // Initial client initialization attempt
 if (typeof window !== "undefined") {
   try {

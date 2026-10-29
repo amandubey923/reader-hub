@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFirebaseAdminFirestore } from "@/lib/firebase-admin";
+import { getVerifiedCaller } from "@/lib/server/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -114,11 +115,21 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const body = await req.json();
+    const caller = await getVerifiedCaller(req.headers.get("authorization"));
+    if (!caller) {
+      return NextResponse.json({ error: "Unauthorized. Please sign in to follow readers." }, { status: 401 });
+    }
+
+    const body = await req.json().catch(() => ({}));
     const { followerUid, targetUid, action } = body;
 
-    if (!followerUid || !targetUid) {
+    if (typeof followerUid !== "string" || typeof targetUid !== "string" || !followerUid || !targetUid) {
       return NextResponse.json({ error: "Missing followerUid or targetUid." }, { status: 400 });
+    }
+
+    // Readers may only follow or unfollow on their own behalf
+    if (followerUid !== caller.uid) {
+      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
     if (followerUid === targetUid) {

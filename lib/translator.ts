@@ -3,6 +3,8 @@
  * Translates currently visible PDF page spreads into Hindi, Hinglish, or English.
  */
 
+import { getAuthHeader } from "@/lib/firebase";
+
 export type TranslationTarget = "hindi" | "hinglish" | "english";
 
 export interface PageExtract {
@@ -119,7 +121,7 @@ export async function translatePageSpread({
   try {
     const res = await fetch("/api/translate", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
       body: JSON.stringify({
         pages,
         targetLanguage,

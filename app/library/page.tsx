@@ -51,6 +51,15 @@ const PHILOSOPHY_SUBCATEGORY_COUNTS: Record<string, number> = {
   "Taoism & Eastern Wisdom": PHILOSOPHY_BOOKS_CACHE.filter((b) => matchesPhilosophySubcategory(b, "Taoism & Eastern Wisdom")).length,
 };
 
+// Every language present in the catalog, most common first (a hard-coded list hid 20+ translated books)
+const CATALOG_LANGUAGES: string[] = (() => {
+  const counts = new Map<string, number>();
+  BOOKS.forEach((b) => {
+    if (b.language) counts.set(b.language, (counts.get(b.language) || 0) + 1);
+  });
+  return ["All", ...Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).map(([lang]) => lang)];
+})();
+
 function LibraryContent() {
   const searchParams = useSearchParams();
   const initialCategoryParam = searchParams.get("category");
@@ -72,7 +81,7 @@ function LibraryContent() {
   );
   const [displayLimit, setDisplayLimit] = useState(25);
 
-  const languages = ["All", "English", "Hindi", "Russian (Eng Trans)", "Spanish (Eng Trans)"];
+  const languages = CATALOG_LANGUAGES;
   const resourceTypes: { label: string; value: string }[] = [
     { label: "All Types", value: "All" },
     { label: "Books", value: "Book" },

@@ -9,11 +9,22 @@ service cloud.firestore {
 
     // 1. Private User root document and personal subcollections
     // (reading_progress, favorites, bookmarks, daily_activity, etc.)
-    match /users/{userId} {
-      allow read, write: if request.auth != null && (request.auth.uid == userId || isAdmin());
+    function isOwnerOrAdmin(userId) {
+      return request.auth != null && (request.auth.uid == userId || isAdmin());
+    }
 
-      match /{document=**} {
-        allow read, write: if request.auth != null && (request.auth.uid == userId || isAdmin());
+    match /users/{userId} {
+      allow read, write: if isOwnerOrAdmin(userId);
+
+      // users/{uid}/data/* — the entitlement doc is written only by the server (Admin SDK bypasses rules)
+      match /data/{docId} {
+        allow read: if isOwnerOrAdmin(userId);
+        allow write: if isOwnerOrAdmin(userId) && (docId != 'entitlement' || isAdmin());
+      }
+
+      // All other personal subcollections (reading_progress, favorites, backups, ...)
+      match /{collectionId}/{document=**} {
+        allow read, write: if collectionId != 'data' && isOwnerOrAdmin(userId);
       }
     }
 
@@ -31,7 +42,11 @@ service cloud.firestore {
     // 3. Unique Username Registry (@username)
     match /usernames/{username} {
       allow read: if true;
-      allow create, update: if request.auth != null && (request.auth.uid == request.resource.data.uid || isAdmin());
+      allow create: if request.auth != null && (request.auth.uid == request.resource.data.uid || isAdmin());
+      // Only the current owner may update a claimed username, and it must stay theirs
+      allow update: if request.auth != null && (
+                      (request.auth.uid == resource.data.uid && request.auth.uid == request.resource.data.uid)
+                      || isAdmin());
       allow delete: if request.auth != null && (request.auth.uid == resource.data.uid || isAdmin());
     }
 
@@ -40,7 +55,8 @@ service cloud.firestore {
       allow read: if true;
       allow create: if request.auth != null 
                     && request.auth.uid == request.resource.data.followerUid 
-                    && request.resource.data.followerUid != request.resource.data.followingUid;
+                    && request.resource.data.followerUid != request.resource.data.followingUid
+                    && followId == request.resource.data.followerUid + '_' + request.resource.data.followingUid;
       allow delete: if request.auth != null && (request.auth.uid == resource.data.followerUid || isAdmin());
     }
 

@@ -4,6 +4,13 @@
  */
 
 import { BOOKS, getBookById } from "@/data/books";
+import {
+  isSafeBookId,
+  mergeAnnotations,
+  mergeBookmarkLists,
+  mergeProgressItems,
+  mergeReadingMemory,
+} from "./reading-merge";
 
 export interface BookmarkItem {
   id: string;
@@ -228,16 +235,13 @@ export function getStoredFavorites(uid?: string | null): string[] {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) return parsed;
     }
+    // Signed-in readers never inherit guest data implicitly; migrateGuestDataToUser() handles that at login
     const targetUid = uid !== undefined ? (uid ? uid.trim() : null) : activeUserUid;
-    const legacy = localStorage.getItem(FAVORITES_KEY) || localStorage.getItem("readershub:favorites:v1:guest");
+    if (targetUid) return [];
+    const legacy = localStorage.getItem("readershub:favorites:v1:guest");
     if (legacy) {
       const parsed = JSON.parse(legacy);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        if (targetUid) {
-          try { localStorage.setItem(key, legacy); } catch {}
-        }
-        return parsed;
-      }
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
     }
     return [];
   } catch {
@@ -268,16 +272,13 @@ export function getStoredReadingHistory(uid?: string | null): ReadingProgressIte
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) return parsed;
     }
+    // Signed-in readers never inherit guest data implicitly; migrateGuestDataToUser() handles that at login
     const targetUid = uid !== undefined ? (uid ? uid.trim() : null) : activeUserUid;
-    const legacy = localStorage.getItem(HISTORY_KEY) || localStorage.getItem("readershub:history:v1:guest");
+    if (targetUid) return [];
+    const legacy = localStorage.getItem("readershub:history:v1:guest");
     if (legacy) {
       const parsed = JSON.parse(legacy);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        if (targetUid) {
-          try { localStorage.setItem(key, legacy); } catch {}
-        }
-        return parsed;
-      }
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
     }
     return [];
   } catch {
@@ -1047,15 +1048,8 @@ export function getBookReadingMemory(bookId: string, uid?: string | null): BookR
     const userKey = getMemoryStorageKey(bookId, targetUid);
     let raw = localStorage.getItem(userKey);
 
-    if (!raw) {
-      const legacy = localStorage.getItem(`${MEMORY_KEY_PREFIX}:${bookId}`) ||
-                     localStorage.getItem(`readershub:memory:v1:guest:${bookId}`);
-      if (legacy) {
-        raw = legacy;
-        if (targetUid) {
-          try { localStorage.setItem(userKey, legacy); } catch {}
-        }
-      }
+    if (!raw && !targetUid) {
+      raw = localStorage.getItem(`readershub:memory:v1:guest:${bookId}`);
     }
 
     if (raw) {
@@ -1166,8 +1160,8 @@ export function getAllReadingMemories(uid?: string | null): Record<string, BookR
       if (userPrefix && key.startsWith(userPrefix)) {
         const bookId = key.replace(userPrefix, "");
         if (bookId) result[bookId] = getBookReadingMemory(bookId, targetUid);
-      } else if (key.startsWith(`${MEMORY_KEY_PREFIX}:`)) {
-        // Fallback for legacy or guest memory keys on this device
+      } else if (!targetUid && key.startsWith(`${MEMORY_KEY_PREFIX}:`)) {
+        // Guest memory keys (`readershub:memory:v1:{bookId}`); never attributed to a signed-in reader
         const rest = key.replace(`${MEMORY_KEY_PREFIX}:`, "");
         if (!rest.includes(":")) {
           const bookId = rest;
@@ -1250,12 +1244,8 @@ export function getSavedProgress(bookId: string, uid?: string | null): ReadingPr
   try {
     const userKey = getProgressStorageKey(bookId, targetUid);
     let raw = localStorage.getItem(userKey);
-    if (!raw) {
-      raw = localStorage.getItem(`${PROGRESS_KEY_PREFIX}:${bookId}`) ||
-            localStorage.getItem(`readershub:progress:v1:guest:${bookId}`);
-      if (raw && targetUid) {
-        try { localStorage.setItem(userKey, raw); } catch {}
-      }
+    if (!raw && !targetUid) {
+      raw = localStorage.getItem(`${PROGRESS_KEY_PREFIX}:${bookId}`);
     }
     if (raw) {
       const parsed = JSON.parse(raw);
@@ -1398,6 +1388,50 @@ export function deleteBookmark(bookId: string, bookmarkId: string, uid?: string 
   } catch (e) {
     console.warn(`[ReaderStorage] Failed to delete bookmark for ${bookId}:`, e);
   }
+}
+
+/**
+ * Replaces the stored bookmark list for a book (used by cloud restore, migration and import).
+ */
+export function saveBookmarksList(bookId: string, list: BookmarkItem[], uid?: string | null): void {
+  if (typeof window === "undefined" || !bookId) return;
+  const targetUid = uid !== undefined ? (uid ? uid.trim() : null) : activeUserUid;
+  const sorted = [...list].sort((a, b) => a.page - b.page);
+  bookmarksCache.set(`${targetUid || "guest"}:${bookId}`, sorted);
+  annotationsCache.delete(`${targetUid || "guest"}:${bookId}`);
+  try {
+    localStorage.setItem(getBookmarksStorageKey(bookId, targetUid), JSON.stringify(sorted));
+    if (!targetUid) {
+      localStorage.setItem(`${BOOKMARKS_KEY_PREFIX}:${bookId}`, JSON.stringify(sorted));
+    }
+  } catch (e) {
+    console.warn(`[ReaderStorage] Failed to save bookmarks for ${bookId}:`, e);
+  }
+}
+
+/**
+ * All bookmark lists for one namespace, keyed by book ID.
+ */
+export function getAllBookmarks(uid?: string | null): Record<string, BookmarkItem[]> {
+  const result: Record<string, BookmarkItem[]> = {};
+  if (typeof window === "undefined") return result;
+  const targetUid = uid !== undefined ? (uid ? uid.trim() : null) : activeUserUid;
+  const prefix = `${BOOKMARKS_KEY_PREFIX}:${targetUid || "guest"}:`;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(prefix)) {
+        const bookId = key.substring(prefix.length);
+        if (isSafeBookId(bookId)) {
+          const list = getBookmarks(bookId, targetUid);
+          if (list.length > 0) result[bookId] = list;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("[ReaderStorage] Error retrieving all bookmarks:", e);
+  }
+  return result;
 }
 
 export function isPageBookmarked(bookId: string, page: number, uid?: string | null): boolean {
@@ -1801,31 +1835,11 @@ export function exportAllUserData(uid?: string | null): string {
   };
 
   try {
-    const favKey = getFavoritesStorageKey(targetUid);
-    const favs = localStorage.getItem(favKey);
-    if (favs) exportData.favorites = JSON.parse(favs);
-
-    const histKey = getHistoryStorageKey(targetUid);
-    const history = localStorage.getItem(histKey);
-    if (history) exportData.readingHistory = JSON.parse(history);
-
-    const annotPrefix = targetUid ? `reader_annotations_v2_${targetUid}:` : ANNOTATIONS_KEY_PREFIX;
-    const bkmkPrefix = targetUid ? `reader_bookmarks_v2_${targetUid}:` : BOOKMARKS_KEY_PREFIX;
-
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key) continue;
-
-      if (key.startsWith(annotPrefix)) {
-        const bookId = key.replace(`${annotPrefix}:`, "").replace(annotPrefix, "");
-        const raw = localStorage.getItem(key);
-        if (raw) exportData.annotations[bookId] = JSON.parse(raw);
-      } else if (key.startsWith(bkmkPrefix)) {
-        const bookId = key.replace(`${bkmkPrefix}:`, "").replace(bkmkPrefix, "");
-        const raw = localStorage.getItem(key);
-        if (raw) exportData.bookmarks[bookId] = JSON.parse(raw);
-      }
-    }
+    // Export exactly this reader's namespace (never another account's keys on a shared device)
+    exportData.favorites = getStoredFavorites(targetUid);
+    exportData.readingHistory = getStoredReadingHistory(targetUid);
+    exportData.annotations = getAllBookAnnotations(targetUid);
+    exportData.bookmarks = getAllBookmarks(targetUid);
   } catch (e) {
     console.warn("[ReaderStorage] Failed to export data:", e);
   }
@@ -1833,7 +1847,14 @@ export function exportAllUserData(uid?: string | null): string {
   return JSON.stringify(exportData, null, 2);
 }
 
-export function importUserData(jsonString: string): { success: boolean; message: string; importedCount?: number; skippedCount?: number } {
+/**
+ * Restores a backup into the given reader's namespace (current reader by default).
+ * Non-destructive: every category is merged with what is already stored, never overwritten.
+ */
+export function importUserData(
+  jsonString: string,
+  uid?: string | null
+): { success: boolean; message: string; importedCount?: number; skippedCount?: number } {
   if (typeof window === "undefined" || !jsonString) {
     return { success: false, message: "No data provided to import." };
   }
@@ -1841,9 +1862,11 @@ export function importUserData(jsonString: string): { success: boolean; message:
   try {
     const data = JSON.parse(jsonString);
 
-    if (!data || typeof data !== "object") {
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
       return { success: false, message: "Invalid backup format. Must be a valid JSON object." };
     }
+
+    const targetUid = uid !== undefined ? (uid ? uid.trim() : null) : activeUserUid;
 
     let importedFavs = 0;
     let importedHistory = 0;
@@ -1851,50 +1874,63 @@ export function importUserData(jsonString: string): { success: boolean; message:
     let importedBookmarks = 0;
     let skipped = 0;
 
-    // 1. Favorites
+    // 1. Favorites (union)
     if (Array.isArray(data.favorites)) {
-      const validFavs = data.favorites.filter((f: any) => typeof f === "string");
-      localStorage.setItem(FAVORITES_KEY, JSON.stringify(validFavs));
+      const validFavs = data.favorites.filter((f: any) => isSafeBookId(f));
+      skipped += data.favorites.length - validFavs.length;
+      saveStoredFavorites(Array.from(new Set([...getStoredFavorites(targetUid), ...validFavs])), targetUid);
       importedFavs = validFavs.length;
     }
 
-    // 2. Reading History
+    // 2. Reading History (furthest page wins)
     if (Array.isArray(data.readingHistory)) {
-      const validHistory: ReadingProgressItem[] = [];
+      const histMap = new Map<string, ReadingProgressItem>();
+      getStoredReadingHistory(targetUid).forEach((h) => histMap.set(h.bookId, h));
       for (const item of data.readingHistory) {
-        if (item && typeof item === "object" && typeof item.bookId === "string" && typeof item.page === "number") {
-          validHistory.push({
+        if (item && typeof item === "object" && isSafeBookId(item.bookId) && typeof item.page === "number" && item.page > 0) {
+          const incoming: ReadingProgressItem = {
             bookId: item.bookId,
             page: item.page,
             totalPages: Number(item.totalPages) || 100,
             progress: Number(item.progress) || 0,
             lastReadAt: Number(item.lastReadAt) || Date.now(),
-          });
+          };
+          const ex = histMap.get(incoming.bookId);
+          histMap.set(incoming.bookId, ex ? mergeProgressItems(ex, incoming) : incoming);
+          importedHistory++;
         } else {
           skipped++;
         }
       }
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(validHistory));
-      importedHistory = validHistory.length;
+      const merged = Array.from(histMap.values()).sort((a, b) => (b.lastReadAt || 0) - (a.lastReadAt || 0));
+      saveStoredReadingHistory(merged, targetUid);
     }
 
-    // 3. Active Time
+    // 3. Active Time (max per day)
     if (data.activeTime && typeof data.activeTime === "object") {
-      const actTime: WebsiteActiveTimeData = {
-        totalActiveSeconds: Number(data.activeTime.totalActiveSeconds) || 0,
-        daily: data.activeTime.daily && typeof data.activeTime.daily === "object" ? data.activeTime.daily : {},
-        lastUpdated: Number(data.activeTime.lastUpdated) || Date.now(),
-      };
-      activeTimeCache = actTime;
-      localStorage.setItem(ACTIVE_TIME_KEY, JSON.stringify(actTime));
+      const cur = getWebsiteActiveTimeData(targetUid);
+      const incomingDaily = data.activeTime.daily && typeof data.activeTime.daily === "object" ? data.activeTime.daily : {};
+      const daily: Record<string, number> = { ...(cur.daily || {}) };
+      Object.entries(incomingDaily).forEach(([k, v]) => {
+        daily[k] = Math.max(daily[k] || 0, Number(v) || 0);
+      });
+      saveWebsiteActiveTimeData(
+        {
+          ...cur,
+          totalActiveSeconds: Math.max(cur.totalActiveSeconds || 0, Number(data.activeTime.totalActiveSeconds) || 0),
+          daily,
+          lastUpdated: Math.max(cur.lastUpdated || 0, Number(data.activeTime.lastUpdated) || 0),
+        },
+        targetUid
+      );
     }
 
-    // 4. Annotations
+    // 4. Annotations (union by ID)
     if (data.annotations && typeof data.annotations === "object") {
       for (const [bookId, ann] of Object.entries(data.annotations)) {
-        if (typeof bookId === "string" && ann && typeof ann === "object") {
-          annotationsCache.set(bookId, ann as BookAnnotations);
-          localStorage.setItem(`${ANNOTATIONS_KEY_PREFIX}:${bookId}`, JSON.stringify(ann));
+        if (isSafeBookId(bookId) && ann && typeof ann === "object") {
+          const { bookmarks: _embedded, ...merged } = mergeAnnotations(getBookAnnotations(bookId, targetUid), ann as BookAnnotations);
+          saveBookAnnotations(bookId, merged as BookAnnotations, targetUid);
           importedAnnotations++;
         } else {
           skipped++;
@@ -1902,12 +1938,11 @@ export function importUserData(jsonString: string): { success: boolean; message:
       }
     }
 
-    // 4. Bookmarks
+    // 5. Bookmarks (union by ID)
     if (data.bookmarks && typeof data.bookmarks === "object") {
       for (const [bookId, bms] of Object.entries(data.bookmarks)) {
-        if (typeof bookId === "string" && Array.isArray(bms)) {
-          bookmarksCache.set(bookId, bms as BookmarkItem[]);
-          localStorage.setItem(`${BOOKMARKS_KEY_PREFIX}:${bookId}`, JSON.stringify(bms));
+        if (isSafeBookId(bookId) && Array.isArray(bms)) {
+          saveBookmarksList(bookId, mergeBookmarkLists(getBookmarks(bookId, targetUid), bms as BookmarkItem[]), targetUid);
           importedBookmarks++;
         } else {
           skipped++;
@@ -1915,20 +1950,44 @@ export function importUserData(jsonString: string): { success: boolean; message:
       }
     }
 
-    // 5. Streak & Reading Activity
-    if (data.readingActivity && typeof data.readingActivity === "object" && data.readingActivity.daily) {
-      localStorage.setItem(ACTIVITY_KEY, JSON.stringify(data.readingActivity));
+    // 6. Streak & Reading Activity (max seconds per day)
+    if (data.readingActivity && typeof data.readingActivity === "object" && data.readingActivity.daily && typeof data.readingActivity.daily === "object") {
+      const cur = getReadingActivityData(targetUid);
+      const mergedDaily: Record<string, DailyReadingActivity> = { ...cur.daily };
+      Object.entries(data.readingActivity.daily as Record<string, DailyReadingActivity>).forEach(([dateKey, act]) => {
+        if (!act || typeof act !== "object") return;
+        const ex = mergedDaily[dateKey];
+        const secs = Math.max(ex?.seconds || 0, Number(act.seconds) || 0);
+        mergedDaily[dateKey] = {
+          seconds: secs,
+          qualified: Boolean(ex?.qualified || act.qualified || secs >= DAILY_READING_GOAL_SECONDS),
+          lastUpdated: Math.max(ex?.lastUpdated || 0, Number(act.lastUpdated) || 0),
+        };
+      });
+      const streak = calculateStreak(mergedDaily);
+      saveReadingActivityData(
+        {
+          daily: mergedDaily,
+          currentStreak: streak.currentStreak,
+          longestStreak: Math.max(streak.longestStreak, cur.longestStreak || 0, Number(data.readingActivity.longestStreak) || 0),
+          lastQualifiedDate: streak.lastQualifiedDate || cur.lastQualifiedDate,
+        },
+        targetUid
+      );
     }
 
-    // 6. Reading Memories
+    // 7. Reading Memories (merged without double counting)
     if (data.readingMemories && typeof data.readingMemories === "object") {
       for (const [bookId, mem] of Object.entries(data.readingMemories)) {
-        if (typeof bookId === "string" && mem && typeof mem === "object") {
-          memoryCache.set(bookId, mem as BookReadingMemory);
-          localStorage.setItem(`${MEMORY_KEY_PREFIX}:${bookId}`, JSON.stringify(mem));
+        if (isSafeBookId(bookId) && mem && typeof mem === "object") {
+          const merged = mergeReadingMemory(getBookReadingMemory(bookId, targetUid), mem as BookReadingMemory, bookId);
+          memoryCache.set(`${targetUid || "guest"}:${bookId}`, merged);
+          localStorage.setItem(getMemoryStorageKey(bookId, targetUid), JSON.stringify(merged));
         }
       }
     }
+
+    invalidateAllCaches();
 
     const totalImported = importedFavs + importedHistory + importedAnnotations + importedBookmarks;
     const msg = skipped > 0
@@ -2061,7 +2120,7 @@ export async function factoryResetAllData(): Promise<void> {
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && (key.startsWith("readershub:") || key.startsWith("readers_hub_"))) {
+      if (key && (key.startsWith("readershub:") || key.startsWith("readers_hub_") || key.startsWith("readershub_certificates_"))) {
         keysToRemove.push(key);
       }
     }
@@ -2099,12 +2158,20 @@ export function clearAllUserDataOnLogout(): void {
     localStorage.removeItem("readershub:reflections:v1:guest");
     localStorage.removeItem("readershub:shelf-dismissals:v1:guest");
 
-    const guestAnnPrefix = "readershub:annotations:v1:guest:";
-    const guestBmPrefix = "readershub:bookmarks:v1:guest:";
-    const guestProgPrefix = "readershub:progress:v1:guest:";
+    // Legacy guest keys are guest-only too; they were merged into the account at login
+    [FAVORITES_KEY, HISTORY_KEY, ACTIVITY_KEY, ACTIVE_TIME_KEY, COLLECTIONS_KEY, REFLECTIONS_KEY, SHELF_DISMISSALS_KEY].forEach(
+      (k) => localStorage.removeItem(k)
+    );
+
+    // Per-book guest keys: `{prefix}:guest:{bookId}` and legacy `{prefix}:{bookId}` (no account UID segment)
+    const perBookPrefixes = [ANNOTATIONS_KEY_PREFIX, BOOKMARKS_KEY_PREFIX, PROGRESS_KEY_PREFIX, MEMORY_KEY_PREFIX];
     for (let i = localStorage.length - 1; i >= 0; i--) {
       const key = localStorage.key(i);
-      if (key && (key.startsWith(guestAnnPrefix) || key.startsWith(guestBmPrefix) || key.startsWith(guestProgPrefix))) {
+      if (!key) continue;
+      const prefix = perBookPrefixes.find((p) => key.startsWith(`${p}:`));
+      if (!prefix) continue;
+      const rest = key.substring(prefix.length + 1);
+      if (rest.startsWith("guest:") || !rest.includes(":")) {
         localStorage.removeItem(key);
       }
     }
@@ -2174,6 +2241,7 @@ export function hydrateStorageFromCloudData(
     collections?: ReadingCollection[];
     reflections?: Record<string, BookReflection>;
     shelfDismissals?: ShelfDismissalsMap;
+    bookmarks?: Record<string, BookmarkItem[]>;
   },
   uid?: string | null
 ): void {
@@ -2397,6 +2465,15 @@ export function hydrateStorageFromCloudData(
       }
     }
 
+    // 10. Bookmarks: Non-destructive union by ID (previously written to the cloud but never restored)
+    if (data.bookmarks && typeof data.bookmarks === "object") {
+      for (const [bookId, list] of Object.entries(data.bookmarks)) {
+        if (isSafeBookId(bookId) && Array.isArray(list) && list.length > 0) {
+          saveBookmarksList(bookId, mergeBookmarkLists(getBookmarks(bookId, targetUid), list), targetUid);
+        }
+      }
+    }
+
     // Invalidate in-memory caches so subsequent calls immediately read the hydrated values
     invalidateAllCaches();
   } catch (e) {
@@ -2495,37 +2572,95 @@ export function migrateGuestDataToUser(uid: string): void {
       );
     }
 
-    // 5. Migrate Reading Memories & Progress Keys
+    // 4b. Migrate collections, reflections and shelf dismissals (previously lost at logout)
+    const guestCollections = getReadingCollections(null);
+    if (guestCollections.length > 0) {
+      const colMap = new Map<string, ReadingCollection>();
+      getReadingCollections(targetUid).forEach((c) => colMap.set(c.id, c));
+      guestCollections.forEach((c) => {
+        const ex = colMap.get(c.id);
+        colMap.set(c.id, ex ? { ...ex, bookIds: Array.from(new Set([...(ex.bookIds || []), ...(c.bookIds || [])])) } : c);
+      });
+      saveReadingCollections(Array.from(colMap.values()), targetUid);
+    }
+
+    const guestReflections = getBookReflections(null);
+    if (Object.keys(guestReflections).length > 0) {
+      const merged = { ...getBookReflections(targetUid) };
+      Object.entries(guestReflections).forEach(([bookId, ref]) => {
+        if (!merged[bookId] || (ref.completedAt || 0) > (merged[bookId].completedAt || 0)) merged[bookId] = ref;
+      });
+      reflectionsCache.set(targetUid, merged);
+      localStorage.setItem(getReflectionsStorageKey(targetUid), JSON.stringify(merged));
+    }
+
+    const guestDismissals = getShelfDismissals(null);
+    if (Object.keys(guestDismissals).length > 0) {
+      const merged: ShelfDismissalsMap = { ...getShelfDismissals(targetUid) };
+      Object.entries(guestDismissals).forEach(([sec, bMap]) => {
+        merged[sec] = { ...(merged[sec] || {}), ...bMap };
+      });
+      shelfDismissalsCache.set(targetUid, merged);
+      localStorage.setItem(getShelfDismissalsStorageKey(targetUid), JSON.stringify(merged));
+    }
+
+    // 5. Migrate per-book guest data (progress, memory, annotations, bookmarks).
+    // Guest per-book keys exist in two shapes: `{prefix}:guest:{bookId}` and the legacy `{prefix}:{bookId}`.
+    const guestBookIdFor = (key: string, prefix: string): string | null => {
+      if (!key.startsWith(`${prefix}:`)) return null;
+      const rest = key.substring(prefix.length + 1);
+      const bookId = rest.startsWith("guest:") ? rest.substring(6) : rest;
+      return isSafeBookId(bookId) ? bookId : null;
+    };
+    const readJson = (key: string): any => {
+      try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const guestKeys: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (!key) continue;
+      if (key) guestKeys.push(key);
+    }
 
-      if (key.startsWith(`${MEMORY_KEY_PREFIX}:`) && !key.startsWith("readershub:memory:v1:")) {
-        const bookId = key.replace(`${MEMORY_KEY_PREFIX}:`, "");
-        if (bookId && !bookId.includes(":")) {
-          const raw = localStorage.getItem(key);
-          const userMemKey = getMemoryStorageKey(bookId, targetUid);
-          if (raw && !localStorage.getItem(userMemKey)) {
-            localStorage.setItem(userMemKey, raw);
-          }
+    for (const key of guestKeys) {
+      const progressBookId = guestBookIdFor(key, PROGRESS_KEY_PREFIX);
+      const memoryBookId = guestBookIdFor(key, MEMORY_KEY_PREFIX);
+      const annotationBookId = guestBookIdFor(key, ANNOTATIONS_KEY_PREFIX);
+      const bookmarkBookId = guestBookIdFor(key, BOOKMARKS_KEY_PREFIX);
+
+      if (progressBookId) {
+        const guestProg = readJson(key);
+        if (guestProg && typeof guestProg.page === "number") {
+          const userKey = getProgressStorageKey(progressBookId, targetUid);
+          const userProg = readJson(userKey);
+          const merged = userProg ? mergeProgressItems(userProg, { ...guestProg, bookId: progressBookId }) : { ...guestProg, bookId: progressBookId };
+          localStorage.setItem(userKey, JSON.stringify(merged));
         }
-      } else if (key.startsWith(`${PROGRESS_KEY_PREFIX}:`) && !key.startsWith("readershub:progress:v1:")) {
-        const bookId = key.replace(`${PROGRESS_KEY_PREFIX}:`, "");
-        if (bookId && !bookId.includes(":")) {
-          const raw = localStorage.getItem(key);
-          const userProgKey = getProgressStorageKey(bookId, targetUid);
-          if (raw && !localStorage.getItem(userProgKey)) {
-            localStorage.setItem(userProgKey, raw);
-          }
+      } else if (memoryBookId) {
+        const guestMem = readJson(key);
+        if (guestMem && typeof guestMem === "object") {
+          const userKey = getMemoryStorageKey(memoryBookId, targetUid);
+          const merged = mergeReadingMemory(readJson(userKey) || undefined, guestMem, memoryBookId);
+          localStorage.setItem(userKey, JSON.stringify(merged));
         }
-      } else if (key.startsWith(`${ANNOTATIONS_KEY_PREFIX}:`) && !key.startsWith("readershub:annotations:v1:")) {
-        const bookId = key.replace(`${ANNOTATIONS_KEY_PREFIX}:`, "");
-        if (bookId && !bookId.includes(":")) {
-          const raw = localStorage.getItem(key);
-          const userAnnKey = getAnnotationsStorageKey(bookId, targetUid);
-          if (raw && !localStorage.getItem(userAnnKey)) {
-            localStorage.setItem(userAnnKey, raw);
-          }
+      } else if (annotationBookId) {
+        const guestAnn = readJson(key);
+        if (guestAnn && typeof guestAnn === "object") {
+          const userKey = getAnnotationsStorageKey(annotationBookId, targetUid);
+          const { bookmarks: _ignored, ...merged } = mergeAnnotations(readJson(userKey) || undefined, guestAnn);
+          localStorage.setItem(userKey, JSON.stringify(merged));
+        }
+      } else if (bookmarkBookId) {
+        const guestBms = readJson(key);
+        if (Array.isArray(guestBms) && guestBms.length > 0) {
+          const userKey = getBookmarksStorageKey(bookmarkBookId, targetUid);
+          const merged = mergeBookmarkLists(readJson(userKey) || [], guestBms);
+          localStorage.setItem(userKey, JSON.stringify(merged));
         }
       }
     }

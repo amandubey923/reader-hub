@@ -11,7 +11,7 @@ import AddToCollectionModal from "@/components/collections/AddToCollectionModal"
 import BookReflectionModal from "@/components/reader/BookReflectionModal";
 import { getRelatedBooks } from "@/lib/recommendations";
 import { getBookAnnotations } from "@/lib/reader-storage";
-import { getAffiliateInfoForBook } from "@/lib/affiliate-config";
+import type { AffiliateLinkInfo } from "@/lib/affiliate-config";
 import AdPlaceholder from "@/components/monetization/AdPlaceholder";
 import { getFirebaseDb, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
@@ -41,11 +41,14 @@ const BookReadingMemory = dynamic(() => import("@/components/memory/BookReadingM
 interface BookDetailClientProps {
   book: Book;
   relatedBooks: Book[];
+  // Resolved on the server so the content-rights audit data never ships in the client bundle
+  affiliateInfo: AffiliateLinkInfo | null;
 }
 
 export default function BookDetailClient({
   book,
   relatedBooks,
+  affiliateInfo,
 }: BookDetailClientProps) {
   const {
     isFavorite,
@@ -101,7 +104,6 @@ export default function BookDetailClient({
 
   const progress = getReadingProgress(book.id);
   const annotations = useMemo(() => getBookAnnotations(book.id), [book.id]);
-  const affiliateInfo = useMemo(() => getAffiliateInfoForBook(book), [book]);
   const userReflection = getReflection(book.id);
   const smartRelatedBooks = useMemo(() => {
     if (relatedBooks && relatedBooks.length > 0) return relatedBooks;

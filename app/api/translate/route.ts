@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { executeWithKeyRotation, getGeminiKeyPool } from "@/lib/gemini-rotator";
+import { guardAiRequest } from "@/lib/server/ai-guard";
 
 export const runtime = "nodejs";
 
@@ -10,11 +11,18 @@ export interface PagePayload {
 
 export type TranslationTarget = "hindi" | "hinglish" | "english";
 
+const VALID_TARGETS: TranslationTarget[] = ["hindi", "hinglish", "english"];
+
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const pages: PagePayload[] = body?.pages || [];
-    const targetLanguage: TranslationTarget = body?.targetLanguage || "hindi";
+    const body = await req.json().catch(() => ({}));
+    const pages: unknown = body?.pages;
+    const requestedTarget = body?.targetLanguage ?? "hindi";
+
+    if (!VALID_TARGETS.includes(requestedTarget)) {
+      return NextResponse.json({ success: false, error: "Unsupported translation language." }, { status: 400 });
+    }
+    const targetLanguage: TranslationTarget = requestedTarget;
 
     if (!Array.isArray(pages) || pages.length === 0) {
       return NextResponse.json(
@@ -23,13 +31,31 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Limit to max 2 pages per request (current reading spread)
-    const activePages = pages.slice(0, 2).filter((p) => p.text && p.text.trim().length > 0);
+    // Limit to max 2 pages per request (current reading spread); page numbers are interpolated into the prompt
+    const activePages: PagePayload[] = pages
+      .slice(0, 2)
+      .filter(
+        (p: any): p is PagePayload =>
+          p &&
+          Number.isInteger(p.pageNum) &&
+          p.pageNum > 0 &&
+          p.pageNum < 100000 &&
+          typeof p.text === "string" &&
+          p.text.trim().length > 0
+      );
 
     if (activePages.length === 0) {
       return NextResponse.json(
         { success: false, error: "This page does not contain selectable text." },
         { status: 400 }
+      );
+    }
+
+    const guard = await guardAiRequest(req.headers, "translate");
+    if (!guard.allowed) {
+      return NextResponse.json(
+        { success: false, error: guard.message },
+        { status: guard.status, headers: { "Retry-After": String(guard.retryAfterSeconds) } }
       );
     }
 
