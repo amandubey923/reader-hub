@@ -34,7 +34,8 @@ export function createRateLimiter(options: { windowMs: number; max: number; maxK
   };
 
   return {
-    check(key: string, limitOverride?: number, now: number = Date.now()): RateLimitResult {
+    /** `cost` lets one request consume several units (e.g. a batch of embeddings). */
+    check(key: string, limitOverride?: number, now: number = Date.now(), cost: number = 1): RateLimitResult {
       const limit = limitOverride ?? max;
       let entry = hits.get(key);
       if (!entry || entry.resetAt <= now) {
@@ -43,15 +44,15 @@ export function createRateLimiter(options: { windowMs: number; max: number; maxK
         hits.set(key, entry);
       }
 
-      if (entry.count >= limit) {
+      if (entry.count + cost > limit) {
         return {
           allowed: false,
-          remaining: 0,
+          remaining: Math.max(0, limit - entry.count),
           retryAfterSeconds: Math.max(1, Math.ceil((entry.resetAt - now) / 1000)),
         };
       }
 
-      entry.count += 1;
+      entry.count += cost;
       return { allowed: true, remaining: limit - entry.count, retryAfterSeconds: 0 };
     },
     reset() {
