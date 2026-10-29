@@ -316,11 +316,6 @@ export default function DiwaliDiya() {
             {isLit ? "Streak" : `${todayReadingMinutes}/15m`}
           </span>
         </div>
-
-        {/* Small Glowing Indicator Dot when Lit */}
-        {isLit && (
-          <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-ping absolute -top-0.5 -right-0.5" />
-        )}
       </button>
 
       {/* -------------------------------------------------------------

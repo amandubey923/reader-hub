@@ -127,7 +127,6 @@ export function WelcomeSlide({ active, onNext }: SlideProps) {
                 <Cover
                   book={book}
                   href={`/book/${book.id}`}
-                  tabIndex={active ? 0 : -1}
                   sizes="96px"
                   className={`${slot.w} aspect-[2/3] shadow-[0_22px_40px_-18px_rgba(20,27,45,0.55)] ring-1 ring-black/5 transition-transform duration-300 hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]`}
                 />
@@ -141,7 +140,6 @@ export function WelcomeSlide({ active, onNext }: SlideProps) {
           <button
             type="button"
             onClick={turnPage}
-            tabIndex={active ? 0 : -1}
             aria-label={`Turn a page of ${FEATURED_BOOK.title}`}
             className="group relative w-[78%] cursor-pointer focus:outline-none"
             style={{ transformStyle: "preserve-3d", transform: "rotateX(24deg) rotateZ(-5deg)" }}
@@ -243,7 +241,6 @@ export function DiscoverSlide({ active }: SlideProps) {
               type="button"
               role="tab"
               aria-selected={selected}
-              tabIndex={active ? 0 : -1}
               onClick={() => setCategory(c)}
               className={`shrink-0 cursor-pointer rounded-full border px-4 py-2 text-xs font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
                 selected
@@ -267,7 +264,6 @@ export function DiscoverSlide({ active }: SlideProps) {
               <Parallax key={book.id} depth={10 + Math.abs(offset) * 4}>
                 <Link
                   href={`/book/${book.id}`}
-                  tabIndex={active ? 0 : -1}
                   className="rh-card-in group block focus:outline-none"
                   style={{ ["--d" as string]: `${i * 70}ms`, ["--tilt" as string]: `${offset * -6}deg` }}
                 >
@@ -295,7 +291,6 @@ export function DiscoverSlide({ active }: SlideProps) {
       <div className="rh-rise mt-8" style={{ ["--d" as string]: "320ms" }}>
         <Link
           href={`/library?category=${encodeURIComponent(category)}`}
-          tabIndex={active ? 0 : -1}
           className="text-sm font-semibold text-[var(--accent)] underline-offset-4 hover:underline"
         >
           Browse all {counts[category]} {category} books →
@@ -383,26 +378,26 @@ export function ReaderSlide({ active }: SlideProps) {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex rounded-lg border border-[var(--border)] bg-[var(--background)] p-0.5" role="group" aria-label="Page layout">
-                <button type="button" tabIndex={active ? 0 : -1} className={control(layout === "single")} onClick={() => setLayout("single")}>
+                <button type="button" className={control(layout === "single")} onClick={() => setLayout("single")}>
                   Single
                 </button>
-                <button type="button" tabIndex={active ? 0 : -1} className={control(layout === "double")} onClick={() => setLayout("double")}>
+                <button type="button" className={control(layout === "double")} onClick={() => setLayout("double")}>
                   Spread
                 </button>
               </div>
               <div className="flex rounded-lg border border-[var(--border)] bg-[var(--background)] p-0.5" role="group" aria-label="Reading mode">
                 {(Object.keys(MODE_STYLES) as ReadingMode[]).map((m) => (
-                  <button key={m} type="button" tabIndex={active ? 0 : -1} className={control(mode === m)} onClick={() => setMode(m)}>
+                  <button key={m} type="button" className={control(mode === m)} onClick={() => setMode(m)}>
                     {MODE_STYLES[m].label}
                   </button>
                 ))}
               </div>
               <div className="flex items-center rounded-lg border border-[var(--border)] bg-[var(--background)] p-0.5" role="group" aria-label="Zoom">
-                <button type="button" tabIndex={active ? 0 : -1} className={control(false)} onClick={() => setZoom((z) => Math.max(80, z - 10))} aria-label="Zoom out">
+                <button type="button" className={control(false)} onClick={() => setZoom((z) => Math.max(80, z - 10))} aria-label="Zoom out">
                   −
                 </button>
                 <span className="w-10 text-center font-mono text-[10px] text-[var(--text-secondary)]">{zoom}%</span>
-                <button type="button" tabIndex={active ? 0 : -1} className={control(false)} onClick={() => setZoom((z) => Math.min(130, z + 10))} aria-label="Zoom in">
+                <button type="button" className={control(false)} onClick={() => setZoom((z) => Math.min(130, z + 10))} aria-label="Zoom in">
                   +
                 </button>
               </div>
@@ -415,7 +410,6 @@ export function ReaderSlide({ active }: SlideProps) {
           >
             <button
               type="button"
-              tabIndex={active ? 0 : -1}
               onClick={turn}
               aria-label="Turn page"
               className="relative flex cursor-pointer focus:outline-none"

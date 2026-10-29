@@ -121,12 +121,6 @@ export default function InstallAppButton({
         title="Install App"
         aria-label="Install App"
       >
-        {/* Visual Beacon Indicator */}
-        <span className="absolute top-1.5 right-1.5 flex h-2 w-2 pointer-events-none">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--accent)] opacity-75" />
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--accent)]" />
-        </span>
-
         {/* Prominent, Bold Install/Download Icon */}
         <svg
           className="w-4 h-4 sm:w-[18px] sm:h-[18px] text-[var(--accent)] transition-transform duration-200 group-hover:scale-110"

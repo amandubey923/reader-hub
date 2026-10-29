@@ -95,7 +95,6 @@ export function UnderstandSlide({ active }: SlideProps) {
           >
             <button
               type="button"
-              tabIndex={active ? 0 : -1}
               onClick={() => setBookmarked((b) => !b)}
               aria-pressed={bookmarked}
               aria-label={bookmarked ? "Remove bookmark" : "Bookmark this page"}
@@ -118,7 +117,6 @@ export function UnderstandSlide({ active }: SlideProps) {
                   <button
                     key={i}
                     type="button"
-                    tabIndex={active ? 0 : -1}
                     onClick={() => toggleMark(i)}
                     className="block cursor-pointer rounded px-1 text-left transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                     style={{ background: mark ? mark.color : "transparent" }}
@@ -136,7 +134,6 @@ export function UnderstandSlide({ active }: SlideProps) {
                   role="radio"
                   aria-checked={tool === h.id}
                   aria-label={`${h.label} highlighter`}
-                  tabIndex={active ? 0 : -1}
                   onClick={() => setTool(h.id)}
                   className={`h-6 w-6 cursor-pointer rounded-full border-2 transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
                     tool === h.id ? "scale-110 border-[#141b2d]" : "border-transparent hover:scale-105"
@@ -168,7 +165,7 @@ export function UnderstandSlide({ active }: SlideProps) {
             </div>
             <div className="mt-3 flex gap-1 rounded-xl border border-[var(--border)] bg-[var(--background)] p-1" role="tablist" aria-label="Translation language">
               {(["hindi", "hinglish", "english"] as Lang[]).map((l) => (
-                <button key={l} type="button" role="tab" aria-selected={lang === l} tabIndex={active ? 0 : -1} className={tab(lang === l)} onClick={() => setLang(l)}>
+                <button key={l} type="button" role="tab" aria-selected={lang === l} className={tab(lang === l)} onClick={() => setLang(l)}>
                   {l === "hindi" ? "हिन्दी" : l === "hinglish" ? "Hinglish" : "English"}
                 </button>
               ))}
@@ -380,7 +377,6 @@ export function BeginSlide({ active, onAuth, onReplay }: SlideProps) {
                     <Link
                       key={book.id}
                       href={`/book/${book.id}`}
-                      tabIndex={active ? 0 : -1}
                       aria-label={`${book.title} by ${book.author}`}
                       className="group relative block flex-1 focus:outline-none"
                       style={{ transformStyle: "preserve-3d" }}
@@ -418,10 +414,10 @@ export function BeginSlide({ active, onAuth, onReplay }: SlideProps) {
           {CATALOG_STATS.books} books are free to read either way.
         </Lede>
         <div className="rh-rise mt-8 flex flex-wrap items-center gap-3" style={{ ["--d" as string]: "240ms" }}>
-          <button type="button" onClick={onAuth} tabIndex={active ? 0 : -1} className={secondaryBtn}>
+          <button type="button" onClick={onAuth} className={secondaryBtn}>
             Log in
           </button>
-          <button type="button" onClick={onAuth} tabIndex={active ? 0 : -1} className={primaryBtn}>
+          <button type="button" onClick={onAuth} className={primaryBtn}>
             Create account
           </button>
         </div>
@@ -429,16 +425,15 @@ export function BeginSlide({ active, onAuth, onReplay }: SlideProps) {
           Both continue with Google sign-in. New readers get an account automatically.
         </p>
         <div className="rh-rise mt-8 flex flex-wrap items-center gap-5 text-sm" style={{ ["--d" as string]: "360ms" }}>
-          <Link href="/library" tabIndex={active ? 0 : -1} className="font-semibold text-[var(--accent)] underline-offset-4 hover:underline">
+          <Link href="/library" className="font-semibold text-[var(--accent)] underline-offset-4 hover:underline">
             Continue as a guest →
           </Link>
           <button
             type="button"
             onClick={onReplay}
-            tabIndex={active ? 0 : -1}
             className="cursor-pointer font-semibold text-[var(--text-secondary)] underline-offset-4 hover:text-[var(--foreground)] hover:underline"
           >
-            ↺ Replay introduction
+            ↑ Back to the top
           </button>
         </div>
       </div>

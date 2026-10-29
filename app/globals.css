@@ -358,7 +358,7 @@
   background-size: auto, auto, 36px 36px, 36px 36px;
 }
 
-/* Only the visible slide animates; everything off-screen is paused */
+/* Continuous animations run only while a section is on screen */
 .rh-slide[data-active="false"],
 .rh-slide[data-active="false"] * {
   animation-play-state: paused !important;
@@ -368,11 +368,11 @@
   from { opacity: 0; transform: translate3d(0, 26px, 0); }
   to { opacity: 1; transform: none; }
 }
-.rh-slide[data-active="true"] .rh-rise {
+.rh-slide[data-revealed="true"] .rh-rise {
   animation: rhRise 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
   animation-delay: var(--d, 0ms);
 }
-.rh-slide[data-active="false"] .rh-rise {
+.rh-slide[data-revealed="false"] .rh-rise {
   opacity: 0;
 }
 
@@ -380,7 +380,7 @@
   from { opacity: 0; transform: translate3d(0, 40px, -80px) rotateY(var(--tilt, 0deg)); }
   to { opacity: 1; transform: rotateY(var(--tilt, 0deg)); }
 }
-.rh-slide[data-active="true"] .rh-card-in {
+.rh-slide[data-revealed="true"] .rh-card-in {
   animation: rhCardIn 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
   animation-delay: var(--d, 0ms);
 }

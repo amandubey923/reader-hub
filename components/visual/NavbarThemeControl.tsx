@@ -43,15 +43,6 @@ export default function NavbarThemeControl({ compact = false }: NavbarThemeContr
         aria-haspopup="true"
         aria-expanded={isOpen}
       >
-        {/* Dynamic Theme Color Swatch */}
-        <span
-          className="w-3.5 h-3.5 rounded-full shadow-inner border border-white/20 transition-transform group-hover:scale-110 flex-shrink-0"
-          style={{
-            background: `linear-gradient(135deg, ${currentThemeConfig.primaryColor}, ${currentThemeConfig.accentColor})`,
-            boxShadow: `0 0 8px ${currentThemeConfig.primaryColor}88`,
-          }}
-        />
-
         <svg
           className={`w-3.5 h-3.5 text-[var(--text-secondary)] transition-transform duration-200 ${
             isOpen ? "rotate-180 text-[var(--accent)]" : ""
