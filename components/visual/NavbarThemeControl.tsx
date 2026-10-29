@@ -37,8 +37,10 @@ export default function NavbarThemeControl({ compact = false }: NavbarThemeContr
       {/* Navbar Trigger Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 bg-[var(--card)] hover:bg-[var(--secondary)] text-[var(--foreground)] border border-[var(--border)] hover:border-[var(--accent)]/50 px-3 py-2 rounded-xl text-xs font-semibold shadow-sm transition-all cursor-pointer group"
-        aria-label="Select theme appearance"
+        className="flex items-center gap-1.5 bg-[var(--card)] hover:bg-[var(--secondary)] text-[var(--foreground)] border border-[var(--border)] hover:border-[var(--accent)]/50 px-2.5 py-2 rounded-xl text-xs font-semibold shadow-sm transition-all cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+        aria-label={`Select theme appearance (current: ${currentThemeConfig.name})`}
+        title={`Theme: ${currentThemeConfig.name}`}
+        aria-haspopup="true"
         aria-expanded={isOpen}
       >
         {/* Dynamic Theme Color Swatch */}
@@ -49,10 +51,6 @@ export default function NavbarThemeControl({ compact = false }: NavbarThemeContr
             boxShadow: `0 0 8px ${currentThemeConfig.primaryColor}88`,
           }}
         />
-
-        <span className="hidden sm:inline font-medium">
-          {currentThemeConfig.name}
-        </span>
 
         <svg
           className={`w-3.5 h-3.5 text-[var(--text-secondary)] transition-transform duration-200 ${

@@ -10,10 +10,11 @@ import ReadingUniverse from "@/components/visual/ReadingUniverse";
 import CategoryPills from "@/components/CategoryPills";
 import BookCard from "@/components/BookCard";
 import SmartRecommendations from "@/components/recommendations/SmartRecommendations";
-import ReadingJourney3D from "@/components/landing/ReadingJourney3D";
-import ReaderFaq from "@/components/landing/ReaderFaq";
+import { useAuth } from "@/context/AuthContext";
+import LandingExperience, { LandingSplash } from "@/components/landing-experience/LandingExperience";
 
 export default function HomePage() {
+  const { user, loading: authLoading } = useAuth();
   const [selectedCategory, setSelectedCategory] = useState<Category>("All");
   const [selectedSubcategory, setSelectedSubcategory] = useState<string>("All Technical");
   const [selectedPhilosophySubcategory, setSelectedPhilosophySubcategory] = useState<string>("All Philosophy");
@@ -72,13 +73,15 @@ export default function HomePage() {
     librarySectionRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  // Logged-out visitors get the separate six-slide introduction; signed-in readers get the original app home.
+  // Every other route (/library, /book/[id], ...) is unaffected, so guests can still read without an account.
+  if (authLoading) return <LandingSplash />;
+  if (!user) return <LandingExperience />;
+
   return (
     <main className="flex-1">
       {/* 1. Cinematic Hero with Video Background & 3D Floating Books */}
       <HeroVideo onExploreClick={scrollToLibrary} />
-
-      {/* 1b. Interactive 3D Reading Workflow */}
-      <ReadingJourney3D />
 
       {/* 2. Continue Reading (synced with localStorage) */}
       <ContinueReading />
@@ -284,9 +287,6 @@ export default function HomePage() {
           </div>
         </div>
       </section>
-
-      {/* 8. FAQ */}
-      <ReaderFaq />
     </main>
   );
 }

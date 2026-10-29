@@ -342,6 +342,109 @@
 }
 
 /* -------------------------------------------------------------
+ * Logged-out landing experience (components/landing-experience). Scoped to .rh-landing.
+ * ------------------------------------------------------------- */
+.rh-landing {
+  --px: 0;
+  --py: 0;
+}
+
+.rh-landing .rh-backdrop {
+  background:
+    radial-gradient(60% 50% at 78% 18%, rgba(232, 162, 58, 0.16), transparent 70%),
+    radial-gradient(50% 45% at 12% 88%, rgba(31, 95, 122, 0.08), transparent 70%),
+    linear-gradient(rgba(20, 27, 45, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(20, 27, 45, 0.04) 1px, transparent 1px);
+  background-size: auto, auto, 36px 36px, 36px 36px;
+}
+
+/* Only the visible slide animates; everything off-screen is paused */
+.rh-slide[data-active="false"],
+.rh-slide[data-active="false"] * {
+  animation-play-state: paused !important;
+}
+
+@keyframes rhRise {
+  from { opacity: 0; transform: translate3d(0, 26px, 0); }
+  to { opacity: 1; transform: none; }
+}
+.rh-slide[data-active="true"] .rh-rise {
+  animation: rhRise 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--d, 0ms);
+}
+.rh-slide[data-active="false"] .rh-rise {
+  opacity: 0;
+}
+
+@keyframes rhCardIn {
+  from { opacity: 0; transform: translate3d(0, 40px, -80px) rotateY(var(--tilt, 0deg)); }
+  to { opacity: 1; transform: rotateY(var(--tilt, 0deg)); }
+}
+.rh-slide[data-active="true"] .rh-card-in {
+  animation: rhCardIn 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--d, 0ms);
+}
+.rh-card-in .rh-card {
+  transform-style: preserve-3d;
+}
+.rh-card-in:hover .rh-card,
+.rh-card-in:focus-visible .rh-card {
+  transform: translateY(-12px) rotateY(calc(var(--tilt, 0deg) * -1)) scale(1.04);
+}
+
+@keyframes rhFloat {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(var(--rot, 0deg)); }
+  50% { transform: translate3d(0, -14px, 0) rotate(var(--rot, 0deg)); }
+}
+.rh-float {
+  transform: rotate(var(--rot, 0deg));
+  animation: rhFloat 7s ease-in-out infinite;
+}
+
+@keyframes rhDrift {
+  0% { transform: translate3d(0, 0, 0); opacity: 0; }
+  15% { opacity: 0.85; }
+  100% { transform: translate3d(var(--dx, 20px), -180px, 0); opacity: 0; }
+}
+.rh-particle {
+  animation: rhDrift var(--dur, 9s) linear infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+@keyframes rhPageTurn {
+  0% { transform: rotateY(0deg); filter: brightness(1); }
+  60% { filter: brightness(0.86); }
+  100% { transform: rotateY(-180deg); filter: brightness(0.92); }
+}
+.rh-page-turn {
+  transform-origin: left center;
+  animation: rhPageTurn 0.95s cubic-bezier(0.45, 0.05, 0.25, 1) forwards;
+  box-shadow: -18px 10px 30px -18px rgba(20, 27, 45, 0.45);
+}
+
+@keyframes rhFade {
+  from { opacity: 0; transform: translate3d(0, 6px, 0); }
+  to { opacity: 1; transform: none; }
+}
+.rh-fade {
+  animation: rhFade 0.45s ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rh-landing *,
+  .rh-landing *::before,
+  .rh-landing *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.001ms !important;
+  }
+  .rh-landing .rh-particle {
+    display: none;
+  }
+}
+
+/* -------------------------------------------------------------
  * 3D Realistic Physical Book Page-Turn Animations & Lighting
  * ------------------------------------------------------------- */
 @keyframes pageTurnRightNext {
