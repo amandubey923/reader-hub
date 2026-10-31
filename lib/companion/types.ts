@@ -36,6 +36,8 @@ export interface CompanionReaderContext {
 export interface CompanionRequest {
   messages: CompanionTurn[];
   reader?: CompanionReaderContext;
+  /** Unique per reader message; a repeated ID is never answered or counted twice. */
+  requestId?: string;
 }
 
 export type CompanionActionName =
@@ -73,4 +75,11 @@ export interface CompanionResponse {
   books: CompanionBookCard[];
   /** True when the model was unavailable and a fallback answer was produced. */
   degraded?: boolean;
+  /** Free daily allowance after this message (absent for Pro readers). */
+  usage?: CompanionUsage;
+}
+
+export interface CompanionUsage {
+  used: number;
+  limit: number;
 }

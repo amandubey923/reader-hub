@@ -23,7 +23,7 @@ function renderInline(text: string, onCite: (page: number) => void, keyBase: str
           key={`${keyBase}-c${si}-${offset}`}
           type="button"
           onClick={() => onCite(Number(page))}
-          className="mx-0.5 inline-flex cursor-pointer items-center rounded-md bg-[var(--accent)]/10 px-1.5 py-0.5 align-baseline font-mono text-[10px] font-semibold text-[var(--accent)] hover:bg-[var(--accent)]/20"
+          className="mx-0.5 inline-flex cursor-pointer items-center rounded-md bg-[var(--accent)]/10 px-1.5 py-0.5 align-baseline font-mono text-[11px] font-semibold text-[var(--accent)] hover:bg-[var(--accent)]/20"
           title={`Go to page ${page}`}
         >
           {match.replace(/[()[\]]/g, "")}
@@ -71,5 +71,5 @@ export default function MessageText({ text, onCite }: { text: string; onCite: (p
   });
   flush("end");
 
-  return <div className="text-[13px] leading-relaxed">{blocks}</div>;
+  return <div className="text-sm leading-relaxed">{blocks}</div>;
 }

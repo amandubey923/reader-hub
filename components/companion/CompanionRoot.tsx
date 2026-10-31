@@ -116,19 +116,19 @@ export default function CompanionRoot() {
   if (suppressed && !open) return null;
 
   const target = fullscreenElement ?? document.body;
-  const compact = onReaderRoute;
+  // Same robot everywhere: large on normal pages, compact while the reader is fullscreen.
+  // Compact sits low on the left, clear of the vertically centred page-turn buttons and the bottom toolbar.
+  const compact = Boolean(fullscreenElement);
 
-  const launcherPosition = compact
-    ? "left-2 top-1/2 -translate-y-1/2 sm:left-3"
-    : "left-4 bottom-4 sm:left-6 sm:bottom-6";
+  const launcherPosition = compact ? "left-2 bottom-24 sm:left-3 sm:bottom-28" : "left-3 bottom-3 sm:left-5 sm:bottom-4";
 
   const content = (
     <div className="bodhi-companion">
       {open ? (
         <div
           className={`fixed z-[58] flex flex-col overflow-hidden border border-[var(--border)] bg-[var(--background)] shadow-[0_30px_80px_-24px_rgba(20,27,45,0.55)]
-            inset-x-2 bottom-2 h-[78dvh] rounded-2xl
-            sm:inset-x-auto sm:left-6 sm:w-[400px] sm:rounded-3xl ${compact ? "sm:top-24 sm:bottom-6 sm:h-auto" : "sm:bottom-6 sm:h-[min(640px,calc(100dvh-7rem))]"}`}
+            inset-x-2 bottom-2 h-[86dvh] rounded-2xl
+            sm:inset-x-auto sm:left-5 sm:w-[min(480px,calc(100vw-2.5rem))] sm:rounded-3xl lg:w-[520px] ${compact ? "sm:top-4 sm:bottom-4 sm:h-auto" : "sm:bottom-5 sm:h-[min(820px,calc(100dvh-6rem))]"}`}
         >
           <CompanionPanel
             snapshot={snapshot}
@@ -164,7 +164,7 @@ export default function CompanionRoot() {
           aria-label="Open Bodhi, your AI reading companion"
           title="Bodhi (Alt+K)"
         >
-          <BodhiRobot mood={mood} size={34} interactive={false} showBook={false} />
+          <BodhiRobot mood={mood} size={46} interactive={false} showBook={false} />
         </button>
       ) : (
         <button
@@ -174,13 +174,20 @@ export default function CompanionRoot() {
           aria-label={snapshot?.isLoaded ? `Ask Bodhi about “${snapshot.title}”` : "Open Bodhi, your AI reading companion"}
           title="Bodhi · AI reading companion (Alt+K)"
         >
-          <span className="relative block">
+          <span className="relative flex flex-col items-start">
             <span className="block sm:hidden">
-              <BodhiRobot mood={mood} size={compact ? 54 : 64} />
+              <BodhiRobot mood={mood} size={compact ? 64 : 100} />
             </span>
             <span className="hidden sm:block">
-              <BodhiRobot mood={mood} size={compact ? 70 : 92} />
+              {/* Fills the empty margin beside the content on wide screens without reaching into it */}
+              <BodhiRobot mood={mood} size={compact ? 92 : "clamp(132px, calc(((100vw - 1280px) / 2 + 8px) / 0.66), 280px)"} />
             </span>
+            {!compact && (
+              <span className="mt-1 rounded-full border border-[var(--border)] bg-[var(--card)]/95 px-2.5 py-1 text-left leading-tight shadow-md backdrop-blur">
+                <span className="block font-serif text-[12px] font-bold text-[var(--foreground)] sm:text-[13px]">Bodhi</span>
+                <span className="hidden whitespace-nowrap text-[10px] font-medium text-[var(--text-secondary)] sm:block">AI Reading Companion</span>
+              </span>
+            )}
             {!compact && (
               <span className="pointer-events-none absolute -right-2 top-1 hidden translate-x-full whitespace-nowrap rounded-full border border-[var(--border)] bg-[var(--card)] px-2.5 py-1 text-[11px] font-semibold text-[var(--foreground)] opacity-0 shadow-md transition-opacity group-hover:opacity-100 sm:block">
                 Ask Bodhi

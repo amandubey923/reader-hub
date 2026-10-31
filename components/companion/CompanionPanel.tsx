@@ -9,6 +9,8 @@ import { useCompanionChat } from "./useCompanionChat";
 import { useVoice, VoiceLang } from "./useVoice";
 import type { ReaderSnapshot } from "@/lib/companion/reader-bridge";
 import { clearAllBookIndexes } from "@/lib/companion/book-index";
+import { useAuth } from "@/context/AuthContext";
+import { useEntitlement } from "@/context/EntitlementContext";
 
 interface CompanionPanelProps {
   snapshot: ReaderSnapshot | null;
@@ -34,7 +36,9 @@ function pageLabel(s: ReaderSnapshot) {
 
 export default function CompanionPanel(props: CompanionPanelProps) {
   const { snapshot, signedIn, navigate } = props;
-  const chat = useCompanionChat(navigate);
+  const { user } = useAuth();
+  const { isPro, openProModal } = useEntitlement();
+  const chat = useCompanionChat(navigate, { uid: user?.uid ?? null, isPro, onLimitReached: openProModal });
   const voice = useVoice();
   const [input, setInput] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -82,7 +86,8 @@ export default function CompanionPanel(props: CompanionPanelProps) {
   }, [reading, snapshot?.selection]);
 
   const submit = (text = input) => {
-    if (!text.trim() || chat.busy) return;
+    // Not blocked while Bodhi is answering: repeats are dropped and new messages are queued by the chat hook
+    if (!text.trim()) return;
     voice.stopSpeaking();
     setInput("");
     chat.send(text);
@@ -94,10 +99,10 @@ export default function CompanionPanel(props: CompanionPanelProps) {
     <div className="flex h-full flex-col" role="dialog" aria-label="Bodhi, your AI reading companion">
       {/* Header */}
       <div className="flex items-center gap-2.5 border-b border-[var(--border)] px-3 py-2.5">
-        <BodhiRobot mood={voice.speaking ? "speaking" : chat.mood} size={44} interactive={false} />
+        <BodhiRobot mood={voice.speaking ? "speaking" : chat.mood} size={56} interactive={false} />
         <div className="min-w-0 flex-1">
-          <div className="font-serif text-base font-bold leading-tight text-[var(--foreground)]">Bodhi</div>
-          <div className="truncate text-[11px] text-[var(--text-secondary)]">
+          <div className="font-serif text-lg font-bold leading-tight text-[var(--foreground)]">Bodhi</div>
+          <div className="truncate text-xs text-[var(--text-secondary)]">
             {chat.busy ? "Thinking…" : reading && snapshot ? `Reading “${snapshot.title}” · ${pageLabel(snapshot)}` : "Your reading companion"}
           </div>
         </div>
@@ -166,9 +171,9 @@ export default function CompanionPanel(props: CompanionPanelProps) {
       )}
 
       {/* Messages */}
-      <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto overscroll-contain px-3 py-3" aria-live="polite">
+      <div ref={listRef} className="flex-1 space-y-3.5 overflow-y-auto overscroll-contain px-4 py-4" aria-live="polite">
         {chat.messages.length === 0 && (
-          <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3.5 text-[13px] leading-relaxed text-[var(--foreground)]">
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4 text-sm leading-relaxed text-[var(--foreground)]">
             <p className="font-semibold">Namaste! I&apos;m Bodhi 👋</p>
             <p className="mt-1 text-[var(--text-secondary)]">
               {reading
@@ -181,13 +186,13 @@ export default function CompanionPanel(props: CompanionPanelProps) {
         {chat.messages.map((m) =>
           m.role === "user" ? (
             <div key={m.id} className="flex justify-end">
-              <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-[#141b2d] px-3.5 py-2 text-[13px] text-[#f7f4ec]">{m.text}</div>
+              <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-[#141b2d] px-4 py-2.5 text-sm leading-relaxed text-[#f7f4ec]">{m.text}</div>
             </div>
           ) : (
             <div key={m.id} className="max-w-[94%] space-y-2">
               {m.text && (
                 <div
-                  className={`rounded-2xl rounded-bl-md border px-3.5 py-2.5 text-[var(--foreground)] ${
+                  className={`rounded-2xl rounded-bl-md border px-4 py-3 text-sm leading-relaxed text-[var(--foreground)] ${
                     m.notice ? "border-[var(--accent)]/30 bg-[var(--accent)]/5" : "border-[var(--border)] bg-[var(--card)]"
                   }`}
                 >
@@ -214,22 +219,22 @@ export default function CompanionPanel(props: CompanionPanelProps) {
               )}
 
               {m.books && m.books.length > 0 && (
-                <div className="grid gap-1.5">
+                <div className="grid gap-2">
                   {m.books.map((b) => (
-                    <div key={b.id} className="flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] p-2">
-                      <div className="relative h-12 w-8 shrink-0 overflow-hidden rounded">
-                        <Image src={b.cover} alt="" fill sizes="32px" className="object-cover" />
+                    <div key={b.id} className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-2.5">
+                      <div className="relative h-16 w-11 shrink-0 overflow-hidden rounded-md shadow-sm">
+                        <Image src={b.cover} alt="" fill sizes="44px" className="object-cover" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="truncate font-serif text-xs font-bold text-[var(--foreground)]">{b.title}</div>
-                        <div className="truncate text-[10px] text-[var(--text-secondary)]">
+                        <div className="line-clamp-2 font-serif text-sm font-bold leading-snug text-[var(--foreground)]">{b.title}</div>
+                        <div className="mt-0.5 truncate text-xs text-[var(--text-secondary)]">
                           {b.author} · {b.language}
                         </div>
                       </div>
                       <button
                         type="button"
                         onClick={() => chat.runDirectAction({ name: "open_book", args: { bookId: b.id } })}
-                        className="cursor-pointer rounded-lg bg-[#141b2d] px-2.5 py-1 text-[10px] font-semibold text-[#f7f4ec] hover:opacity-90"
+                        className="shrink-0 cursor-pointer rounded-lg bg-[#141b2d] px-3.5 py-1.5 text-xs font-semibold text-[#f7f4ec] hover:opacity-90"
                       >
                         Open
                       </button>
@@ -241,7 +246,7 @@ export default function CompanionPanel(props: CompanionPanelProps) {
               {m.actions?.map((a, i) => (
                 <div
                   key={i}
-                  className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-[11px] ${
+                  className={`flex items-center justify-between gap-2 rounded-xl border px-3.5 py-2.5 text-xs ${
                     a.state === "done"
                       ? "border-emerald-600/30 bg-emerald-600/5 text-[var(--foreground)]"
                       : a.state === "failed"
@@ -284,14 +289,13 @@ export default function CompanionPanel(props: CompanionPanelProps) {
       </div>
 
       {/* Quick prompts */}
-      <div className="flex gap-1.5 overflow-x-auto border-t border-[var(--border)] px-3 pt-2">
+      <div className="flex gap-1.5 overflow-x-auto border-t border-[var(--border)] px-4 pt-2.5">
         {quickPrompts.map((q) => (
           <button
             key={q}
             type="button"
-            disabled={chat.busy}
             onClick={() => submit(q)}
-            className="shrink-0 cursor-pointer rounded-full border border-[var(--border)] bg-[var(--card)] px-2.5 py-1 text-[11px] text-[var(--foreground)] transition-colors hover:border-[var(--accent)]/50 disabled:opacity-50"
+            className="shrink-0 cursor-pointer rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs text-[var(--foreground)] transition-colors hover:border-[var(--accent)]/50 disabled:opacity-50"
           >
             {q}
           </button>
@@ -299,7 +303,7 @@ export default function CompanionPanel(props: CompanionPanelProps) {
       </div>
 
       {/* Input */}
-      <div className="p-3">
+      <div className="p-3 sm:p-4">
         {voiceError && <div className="mb-1.5 text-[11px] text-[#b4321f]">{voiceError}</div>}
         <div className="flex items-end gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] p-1.5 focus-within:border-[var(--accent)]/60">
           <textarea
@@ -315,7 +319,7 @@ export default function CompanionPanel(props: CompanionPanelProps) {
             }}
             rows={1}
             placeholder={reading ? "Ask about this page… (e.g. ye samajh nahi aa raha)" : "Ask Bodhi about books…"}
-            className="max-h-28 min-h-[36px] flex-1 resize-none bg-transparent px-2 py-2 text-[13px] text-[var(--foreground)] placeholder:text-[var(--text-secondary)] focus:outline-none"
+            className="max-h-32 min-h-[40px] flex-1 resize-none bg-transparent px-2 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--text-secondary)] focus:outline-none"
             aria-label="Message Bodhi"
           />
           {voice.canListen && (
@@ -349,7 +353,7 @@ export default function CompanionPanel(props: CompanionPanelProps) {
           <button
             type="button"
             onClick={() => submit()}
-            disabled={!input.trim() || chat.busy}
+            disabled={!input.trim()}
             className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-gradient-to-br from-[var(--primary)] to-[var(--accent-secondary)] text-white shadow-md transition-opacity disabled:cursor-default disabled:opacity-40"
             aria-label="Send"
           >

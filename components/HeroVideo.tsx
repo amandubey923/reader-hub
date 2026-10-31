@@ -79,7 +79,6 @@ export default function HeroVideo({ onExploreClick }: HeroVideoProps) {
       <div className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 text-center flex flex-col items-center">
         {/* Subtle Pill Badge */}
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[var(--card)] border border-[var(--border)] text-[var(--accent)] text-xs font-bold uppercase tracking-widest mb-6 backdrop-blur-xl shadow-md animate-fade-in">
-          <span className="w-2 h-2 rounded-full bg-[var(--accent)] animate-ping" />
           <span>Free Digital Library &amp; Reading Platform</span>
         </div>
 

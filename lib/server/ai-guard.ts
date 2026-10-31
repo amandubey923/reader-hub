@@ -3,17 +3,16 @@ import { getVerifiedCaller } from "./auth";
 import { FREE_TIER_LIMITS, PRO_ENFORCEMENT_ENABLED } from "@/lib/monetization-config";
 import { isEntitlementActive, UserEntitlement } from "@/lib/entitlements";
 import { getFirebaseAdminFirestore } from "@/lib/firebase-admin";
+import { COMPANION_FREE_DAILY_MESSAGES } from "./companion-quota";
 
 export type AiFeature = "chat" | "translate" | "companion" | "embed";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 // Anonymous callers are keyed by IP, which several readers may share (campus, office, mobile NAT)
-const GUEST_IP_DAILY_MULTIPLIER = 3;
+export const GUEST_IP_DAILY_MULTIPLIER = 3;
 
-// Reading companion allowance (messages that reach the model; direct page commands never do).
-// A product decision kept here so it can be tuned in one place.
-export const COMPANION_FREE_DAILY_MESSAGES = 25;
+// Reading companion allowance: see ./companion-quota (shared, per-account counter with duplicate protection).
 // Embedding budget per account per day, counted in passages (a 300-page book is roughly 300-600 passages)
 export const EMBED_DAILY_PASSAGES = 2000;
 
@@ -42,7 +41,7 @@ const dailyLimiters: Record<AiFeature, ReturnType<typeof createRateLimiter>> = {
 const PRO_CACHE_TTL_MS = 5 * 60 * 1000;
 const proStatusCache = new Map<string, { isPro: boolean; expiresAt: number }>();
 
-async function isProUser(uid: string): Promise<boolean> {
+export async function isProUser(uid: string): Promise<boolean> {
   const cached = proStatusCache.get(uid);
   if (cached && cached.expiresAt > Date.now()) return cached.isPro;
 
@@ -84,7 +83,7 @@ const DAILY_LIMIT_MESSAGES: Record<AiFeature, string> = {
 export async function guardAiRequest(
   headers: Headers,
   feature: AiFeature,
-  options: { cost?: number; caller?: Awaited<ReturnType<typeof getVerifiedCaller>> } = {}
+  options: { cost?: number; caller?: Awaited<ReturnType<typeof getVerifiedCaller>>; skipDaily?: boolean } = {}
 ): Promise<AiGuardResult> {
   const caller = options.caller !== undefined ? options.caller : await getVerifiedCaller(headers.get("authorization"));
   const identity = caller ? `uid:${caller.uid}` : `ip:${getClientIp(headers)}`;
@@ -101,7 +100,8 @@ export async function guardAiRequest(
     };
   }
 
-  const dailyApplies = limits.alwaysDaily || (PRO_ENFORCEMENT_ENABLED && !(caller && (await isProUser(caller.uid))));
+  // skipDaily: the feature enforces its own daily allowance (e.g. Bodhi, counted per account across devices)
+  const dailyApplies = !options.skipDaily && (limits.alwaysDaily || (PRO_ENFORCEMENT_ENABLED && !(caller && (await isProUser(caller.uid)))));
   if (dailyApplies) {
     const dailyMax = caller ? limits.freeDaily : limits.freeDaily * GUEST_IP_DAILY_MULTIPLIER;
     const daily = dailyLimiters[feature].check(identity, dailyMax, Date.now(), cost);

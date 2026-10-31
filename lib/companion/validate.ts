@@ -74,5 +74,8 @@ export function validateCompanionRequest(body: unknown): CompanionValidation {
     };
   }
 
-  return { ok: true, value: { messages, reader } };
+  // Optional idempotency key: short, URL-safe, chosen by the client per reader message
+  const requestId = typeof raw.requestId === "string" && /^[A-Za-z0-9_-]{6,64}$/.test(raw.requestId) ? raw.requestId : undefined;
+
+  return { ok: true, value: { messages, reader, requestId } };
 }

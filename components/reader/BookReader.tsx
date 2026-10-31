@@ -690,7 +690,9 @@ export default function BookReader({ book }: BookReaderProps) {
         const containerHeight = container ? container.clientHeight : 700;
 
         const isDouble = prefs.layoutMode === "double" && !isMobile;
-        const availableWidth = isDouble ? (containerWidth - 90) / 2 : containerWidth - (isMobile ? 0 : 40);
+        // Two-page spreads keep a clear 72px lane on each side for the ‹ › page-turn buttons (16px inset + 48px button + 8px gap)
+        const NAV_LANES = 2 * 72;
+        const availableWidth = isDouble ? (containerWidth - 90 - NAV_LANES) / 2 : containerWidth - (isMobile ? 0 : 40);
         const availableHeight = (isFocusMode || isFullscreen)
           ? containerHeight - (isMobile ? 48 : 70)
           : containerHeight - (isMobile ? 60 : 120);

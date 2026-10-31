@@ -455,10 +455,13 @@
   --gold: #e8a23a;
   --gold-deep: #b45309;
   --ivory: #fffdf8;
-  width: var(--s);
+  --shell: #fbf6ea;
+  --shell-shade: #dccdb0;
+  /* --s is the figure height; everything else is proportional so one robot serves every size */
+  width: calc(var(--s) * 0.66);
   height: var(--s);
   position: relative;
-  perspective: calc(var(--s) * 6);
+  perspective: calc(var(--s) * 4);
   flex-shrink: 0;
 }
 .bodhi-stage {
@@ -466,105 +469,103 @@
   inset: 0;
   transform-style: preserve-3d;
 }
-.bodhi-book {
+.bodhi-shadow {
   position: absolute;
-  left: 4%;
-  right: 4%;
-  bottom: 2%;
-  height: 34%;
-  transform: rotateX(58deg);
-  transform-style: preserve-3d;
-}
-.bodhi-cover {
-  position: absolute;
-  inset: -6% -3%;
-  border-radius: 8%;
-  background: linear-gradient(135deg, #22304f, var(--navy));
-  box-shadow: 0 calc(var(--s) * 0.12) calc(var(--s) * 0.16) rgba(20, 27, 45, 0.35), inset 0 0 0 1.5px rgba(232, 162, 58, 0.7);
-  transform: translateZ(-2px);
-}
-.bodhi-page {
-  position: absolute;
-  top: 0;
+  left: 16%;
+  right: 16%;
   bottom: 0;
-  width: 50%;
-  background: repeating-linear-gradient(180deg, transparent 0 16%, rgba(20, 27, 45, 0.12) 16% 19%), linear-gradient(90deg, var(--ivory), #efe6d3);
-}
-.bodhi-page-l {
-  left: 0;
-  border-radius: 6% 0 0 6%;
-  transform-origin: right center;
-  transform: rotateY(8deg);
-}
-.bodhi-page-r {
-  right: 0;
-  border-radius: 0 6% 6% 0;
-  background: repeating-linear-gradient(180deg, transparent 0 16%, rgba(20, 27, 45, 0.12) 16% 19%), linear-gradient(270deg, var(--ivory), #efe6d3);
-  transform-origin: left center;
-  transform: rotateY(-8deg);
-}
-.bodhi-flutter {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: 48%;
-  border-radius: 0 6% 6% 0;
-  background: linear-gradient(270deg, #fff, #ece2cc);
-  transform-origin: left center;
-  opacity: 0;
+  height: calc(var(--s) * 0.05);
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(20, 27, 45, 0.38), rgba(20, 27, 45, 0));
+  animation: bodhiShadow 3.6s ease-in-out infinite;
 }
 .bodhi-bot {
   position: absolute;
-  left: 21%;
-  width: 58%;
-  bottom: 20%;
-  height: 74%;
+  inset: 0 0 calc(var(--s) * 0.025);
   transform-style: preserve-3d;
   animation: bodhiBob 3.6s ease-in-out infinite;
 }
+
+/* Head */
 .bodhi-head {
   position: absolute;
-  top: 8%;
-  left: 0;
-  width: 100%;
-  height: 47%;
-  border-radius: 34%;
-  background: radial-gradient(120% 90% at 30% 20%, #ffffff, var(--ivory) 45%, #e7dcc6 100%);
-  box-shadow: inset 0 calc(var(--s) * -0.03) calc(var(--s) * 0.05) rgba(20, 27, 45, 0.18), 0 calc(var(--s) * 0.04) calc(var(--s) * 0.08) rgba(20, 27, 45, 0.25);
-  transform: rotateY(calc(var(--look-x) * 16deg)) rotateX(calc(var(--look-y) * -12deg)) translateZ(6px);
+  top: calc(var(--s) * 0.07);
+  left: 50%;
+  width: calc(var(--s) * 0.33);
+  height: calc(var(--s) * 0.29);
+  border-radius: 48% 48% 42% 42%;
+  background: radial-gradient(110% 95% at 32% 22%, #ffffff 0%, var(--shell) 42%, var(--shell-shade) 100%);
+  box-shadow:
+    inset calc(var(--s) * -0.012) calc(var(--s) * -0.018) calc(var(--s) * 0.03) rgba(20, 27, 45, 0.16),
+    inset 0 0 0 calc(var(--s) * 0.004) rgba(232, 162, 58, 0.45),
+    0 calc(var(--s) * 0.02) calc(var(--s) * 0.035) rgba(20, 27, 45, 0.22);
+  transform: translateX(-50%) rotateY(calc(var(--look-x) * 16deg)) rotateX(calc(var(--look-y) * -12deg)) translateZ(6px);
   transition: transform 260ms ease-out;
   z-index: 3;
 }
+.bodhi-head::after {
+  /* specular highlight */
+  content: "";
+  position: absolute;
+  top: 7%;
+  left: 15%;
+  width: 34%;
+  height: 16%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0));
+  transform: rotate(-18deg);
+}
 .bodhi-visor {
   position: absolute;
-  inset: 20% 12% 22%;
-  border-radius: 40%;
-  background: radial-gradient(120% 120% at 35% 25%, #2a3a63, var(--navy) 70%);
-  box-shadow: inset 0 0 calc(var(--s) * 0.04) rgba(0, 0, 0, 0.6);
+  inset: 25% 12% 19%;
+  border-radius: 42% / 48%;
+  background: radial-gradient(120% 120% at 35% 25%, #2d3f6b, var(--navy) 68%, #0b101c);
+  box-shadow: inset 0 0 calc(var(--s) * 0.015) rgba(0, 0, 0, 0.7), 0 0 0 calc(var(--s) * 0.005) rgba(232, 162, 58, 0.55);
   overflow: hidden;
+}
+.bodhi-visor::after {
+  /* glass reflection */
+  content: "";
+  position: absolute;
+  top: 6%;
+  left: 8%;
+  width: 55%;
+  height: 26%;
+  border-radius: 50%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0));
 }
 .bodhi-eye {
   position: absolute;
   top: 26%;
-  width: 17%;
-  height: 40%;
+  width: 19%;
+  height: 44%;
   border-radius: 999px;
-  background: linear-gradient(180deg, #ffd27a, var(--gold));
-  box-shadow: 0 0 calc(var(--s) * 0.06) rgba(232, 162, 58, 0.85);
+  background: linear-gradient(180deg, #ffe2a1, var(--gold));
+  box-shadow: 0 0 calc(var(--s) * 0.02) rgba(232, 162, 58, 0.9);
   transform: translate(calc(var(--look-x) * 18%), calc(var(--look-y) * 14%));
   animation: bodhiBlink 5.2s infinite;
   transition: height 200ms ease, top 200ms ease, border-radius 200ms ease;
 }
+.bodhi-eye::after {
+  /* eye glint */
+  content: "";
+  position: absolute;
+  top: 16%;
+  left: 22%;
+  width: 34%;
+  height: 22%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+}
 .bodhi-eye-l {
-  left: 24%;
+  left: 22%;
 }
 .bodhi-eye-r {
-  right: 24%;
+  right: 22%;
 }
 .bodhi-mouth {
   position: absolute;
-  bottom: 12%;
+  bottom: 10%;
   left: 50%;
   display: flex;
   gap: 8%;
@@ -581,26 +582,46 @@
   border-radius: 2px;
   background: var(--gold);
 }
+.bodhi-cheek {
+  position: absolute;
+  bottom: 9%;
+  width: 13%;
+  height: 8%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(232, 140, 90, 0.45), rgba(232, 140, 90, 0));
+}
+.bodhi-cheek-l {
+  left: 4%;
+}
+.bodhi-cheek-r {
+  right: 4%;
+}
+
+/* Round ears on top of the head, and a small antenna between them */
 .bodhi-ear {
   position: absolute;
-  top: 36%;
-  width: 11%;
-  height: 26%;
-  border-radius: 40%;
-  background: linear-gradient(180deg, #f6c56a, var(--gold-deep));
+  top: calc(var(--s) * 0.035);
+  width: calc(var(--s) * 0.1);
+  height: calc(var(--s) * 0.1);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 55%, #ffd88a 0 22%, var(--gold) 34%, var(--gold-deep) 46%, transparent 48%),
+    radial-gradient(circle at 35% 30%, #ffffff, var(--shell) 50%, var(--shell-shade));
+  box-shadow: 0 calc(var(--s) * 0.008) calc(var(--s) * 0.015) rgba(20, 27, 45, 0.25);
+  z-index: 2;
 }
 .bodhi-ear-l {
-  left: -6%;
+  left: calc(50% - var(--s) * 0.175);
 }
 .bodhi-ear-r {
-  right: -6%;
+  left: calc(50% + var(--s) * 0.075);
 }
 .bodhi-antenna {
   position: absolute;
-  top: -4%;
+  top: calc(var(--s) * 0.022);
   left: 50%;
-  width: 4%;
-  height: 14%;
+  width: calc(var(--s) * 0.012);
+  height: calc(var(--s) * 0.06);
   transform: translateX(-50%);
   background: linear-gradient(180deg, #c9bfae, #8f8678);
   border-radius: 2px;
@@ -608,71 +629,172 @@
 }
 .bodhi-bulb {
   position: absolute;
-  top: -70%;
+  top: calc(var(--s) * -0.03);
   left: 50%;
-  width: calc(var(--s) * 0.085);
-  height: calc(var(--s) * 0.085);
+  width: calc(var(--s) * 0.04);
+  height: calc(var(--s) * 0.04);
   border-radius: 50%;
   transform: translateX(-50%);
   background: radial-gradient(circle at 35% 30%, #fff1c9, var(--gold) 60%, var(--gold-deep));
-  box-shadow: 0 0 calc(var(--s) * 0.08) rgba(232, 162, 58, 0.9);
+  box-shadow: 0 0 calc(var(--s) * 0.03) rgba(232, 162, 58, 0.9);
 }
+
+/* Body: a tall rounded capsule with cylindrical shading, a neck ring and a gold belt */
 .bodhi-body {
   position: absolute;
-  top: 54%;
-  left: 17%;
-  width: 66%;
-  height: 32%;
-  border-radius: 38% 38% 30% 30%;
-  background: linear-gradient(160deg, #ffffff, #e9dfca);
-  box-shadow: inset 0 calc(var(--s) * -0.02) calc(var(--s) * 0.04) rgba(20, 27, 45, 0.18);
+  top: calc(var(--s) * 0.345);
+  left: 50%;
+  width: calc(var(--s) * 0.27);
+  height: calc(var(--s) * 0.53);
+  border-radius: calc(var(--s) * 0.1) calc(var(--s) * 0.1) calc(var(--s) * 0.12) calc(var(--s) * 0.12);
+  transform: translateX(-50%);
+  background: linear-gradient(90deg, var(--shell-shade) 0%, var(--shell) 30%, #ffffff 48%, var(--shell) 66%, var(--shell-shade) 100%);
+  box-shadow:
+    inset 0 calc(var(--s) * -0.02) calc(var(--s) * 0.03) rgba(20, 27, 45, 0.16),
+    inset 0 0 0 calc(var(--s) * 0.004) rgba(232, 162, 58, 0.4),
+    0 calc(var(--s) * 0.015) calc(var(--s) * 0.03) rgba(20, 27, 45, 0.18);
   z-index: 2;
+}
+.bodhi-body::before {
+  /* neck */
+  content: "";
+  position: absolute;
+  top: calc(var(--s) * -0.022);
+  left: 30%;
+  width: 40%;
+  height: calc(var(--s) * 0.03);
+  border-radius: 999px;
+  background: linear-gradient(180deg, #2a3557, var(--navy));
+}
+.bodhi-body::after {
+  /* gold belt */
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 74%;
+  height: 5%;
+  background: linear-gradient(180deg, #f6c56a, var(--gold-deep));
+  opacity: 0.85;
 }
 .bodhi-core {
   position: absolute;
-  top: 26%;
+  top: 8%;
   left: 50%;
-  width: 26%;
+  width: 24%;
   aspect-ratio: 1;
   border-radius: 50%;
   transform: translateX(-50%);
   background: radial-gradient(circle at 35% 30%, #fff3cf, var(--gold) 55%, var(--gold-deep));
-  box-shadow: 0 0 calc(var(--s) * 0.05) rgba(232, 162, 58, 0.7);
+  box-shadow: 0 0 calc(var(--s) * 0.025) rgba(232, 162, 58, 0.75);
 }
-.bodhi-arm {
-  position: absolute;
-  top: 58%;
-  width: 12%;
-  height: 26%;
-  border-radius: 999px;
-  background: linear-gradient(180deg, #f5ecdb, #d9ccb2);
-  transform-origin: 50% 10%;
-  z-index: 1;
-}
-.bodhi-arm-l {
-  left: 4%;
-  transform: rotate(18deg);
-}
-.bodhi-arm-r {
-  right: 4%;
-  transform: rotate(-18deg);
-}
+
+/* Feet */
 .bodhi-leg {
   position: absolute;
-  bottom: -4%;
-  width: 13%;
-  height: 22%;
-  border-radius: 999px;
-  background: linear-gradient(180deg, #e9dfca, var(--navy) 85%);
-  transform-origin: 50% 0;
-  animation: bodhiSwing 2.8s ease-in-out infinite;
+  bottom: 0;
+  width: calc(var(--s) * 0.095);
+  height: calc(var(--s) * 0.065);
+  border-radius: 50% 50% 30% 30%;
+  background: linear-gradient(180deg, #2a3557, var(--navy));
+  box-shadow: inset 0 calc(var(--s) * 0.006) 0 rgba(232, 162, 58, 0.55);
+  z-index: 1;
 }
 .bodhi-leg-l {
-  left: 30%;
+  left: calc(50% - var(--s) * 0.115);
 }
 .bodhi-leg-r {
-  right: 30%;
-  animation-delay: -1.4s;
+  left: calc(50% + var(--s) * 0.02);
+}
+
+/* Arms from the shoulders to the book's edges; the hand is part of the arm so a wave moves it too */
+.bodhi-arm {
+  position: absolute;
+  top: calc(var(--s) * 0.39);
+  width: calc(var(--s) * 0.052);
+  height: calc(var(--s) * 0.19);
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--shell-shade), #ffffff 45%, var(--shell));
+  transform-origin: 50% calc(var(--s) * 0.02);
+  z-index: 6;
+  transition: transform 300ms ease;
+}
+.bodhi-arm i {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--s) * -0.02);
+  width: calc(var(--s) * 0.06);
+  height: calc(var(--s) * 0.06);
+  border-radius: 50%;
+  transform: translateX(-50%);
+  background: radial-gradient(circle at 35% 30%, #ffffff, var(--shell) 55%, var(--shell-shade));
+  box-shadow: 0 0 0 calc(var(--s) * 0.004) rgba(232, 162, 58, 0.5);
+}
+.bodhi-arm-l {
+  left: calc(50% - var(--s) * 0.155);
+  transform: rotate(52deg);
+}
+.bodhi-arm-r {
+  left: calc(50% + var(--s) * 0.103);
+  transform: rotate(-52deg);
+}
+.bodhi[data-book="false"] .bodhi-arm-l {
+  transform: rotate(12deg);
+}
+.bodhi[data-book="false"] .bodhi-arm-r {
+  transform: rotate(-12deg);
+}
+
+/* The open book held at chest height (seen from slightly above, pages in a gentle V) */
+.bodhi-book {
+  position: absolute;
+  top: calc(var(--s) * 0.44);
+  left: 50%;
+  width: calc(var(--s) * 0.62);
+  height: calc(var(--s) * 0.22);
+  margin-left: calc(var(--s) * -0.31);
+  transform: rotateX(46deg);
+  transform-style: preserve-3d;
+  z-index: 5;
+}
+.bodhi-cover {
+  position: absolute;
+  inset: -5% -2.5%;
+  border-radius: 6%;
+  background: linear-gradient(135deg, #22304f, var(--navy));
+  box-shadow: 0 calc(var(--s) * 0.035) calc(var(--s) * 0.05) rgba(20, 27, 45, 0.35), inset 0 0 0 1.5px rgba(232, 162, 58, 0.75);
+  transform: translateZ(-2px);
+}
+.bodhi-page {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  background: repeating-linear-gradient(180deg, transparent 0 15%, rgba(20, 27, 45, 0.13) 15% 18%), linear-gradient(90deg, var(--ivory), #efe6d3);
+}
+.bodhi-page-l {
+  left: 0;
+  border-radius: 6% 0 0 6%;
+  transform-origin: right center;
+  transform: rotateY(12deg);
+}
+.bodhi-page-r {
+  right: 0;
+  border-radius: 0 6% 6% 0;
+  background: repeating-linear-gradient(180deg, transparent 0 15%, rgba(20, 27, 45, 0.13) 15% 18%), linear-gradient(270deg, var(--ivory), #efe6d3);
+  transform-origin: left center;
+  transform: rotateY(-12deg);
+}
+.bodhi-flutter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 48%;
+  border-radius: 0 6% 6% 0;
+  background: linear-gradient(270deg, #fff, #ece2cc);
+  transform-origin: left center;
+  opacity: 0;
 }
 
 /* Moods */
@@ -720,23 +842,23 @@
 
 @keyframes bodhiBob {
   0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-4%); }
+  50% { transform: translateY(-2.5%); }
+}
+@keyframes bodhiShadow {
+  0%, 100% { transform: scaleX(1); opacity: 1; }
+  50% { transform: scaleX(0.86); opacity: 0.75; }
 }
 @keyframes bodhiBlink {
   0%, 92%, 100% { transform: translate(calc(var(--look-x) * 18%), calc(var(--look-y) * 14%)) scaleY(1); }
   95% { transform: translate(calc(var(--look-x) * 18%), calc(var(--look-y) * 14%)) scaleY(0.1); }
 }
-@keyframes bodhiSwing {
-  0%, 100% { transform: rotate(10deg); }
-  50% { transform: rotate(-12deg); }
-}
 @keyframes bodhiWave {
-  0%, 100% { transform: rotate(-18deg); }
-  50% { transform: rotate(-150deg); }
+  0%, 100% { transform: rotate(-52deg); }
+  50% { transform: rotate(-155deg); }
 }
 @keyframes bodhiPulse {
-  0%, 100% { filter: brightness(1); box-shadow: 0 0 calc(var(--s) * 0.04) rgba(232, 162, 58, 0.6); }
-  50% { filter: brightness(1.3); box-shadow: 0 0 calc(var(--s) * 0.14) rgba(232, 162, 58, 1); }
+  0%, 100% { filter: brightness(1); box-shadow: 0 0 calc(var(--s) * 0.02) rgba(232, 162, 58, 0.6); }
+  50% { filter: brightness(1.3); box-shadow: 0 0 calc(var(--s) * 0.06) rgba(232, 162, 58, 1); }
 }
 @keyframes bodhiFlutter {
   0% { opacity: 0; transform: rotateY(0deg); }

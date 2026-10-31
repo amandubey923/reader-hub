@@ -66,7 +66,7 @@ export default function ProUpgradeModal() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md animate-fade-in text-left overflow-y-auto"
+      className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md animate-fade-in text-left overflow-y-auto"
       onClick={closeProModal}
       role="dialog"
       aria-modal="true"

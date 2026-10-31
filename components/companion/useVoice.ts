@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createUtteranceCollector } from "@/lib/companion/voice-utterance";
 
 export type VoiceLang = "en-IN" | "hi-IN";
 
@@ -24,12 +25,14 @@ export function useVoice() {
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const collectorRef = useRef<ReturnType<typeof createUtteranceCollector> | null>(null);
 
   useEffect(() => {
     const w = window as any;
     setCanListen(Boolean(w.SpeechRecognition || w.webkitSpeechRecognition));
     setCanSpeak("speechSynthesis" in window && typeof (window as any).SpeechSynthesisUtterance === "function");
     return () => {
+      collectorRef.current?.cancel();
       try {
         recognitionRef.current?.abort();
       } catch {}
@@ -43,23 +46,31 @@ export function useVoice() {
     const w = window as any;
     const Recognition = w.SpeechRecognition || w.webkitSpeechRecognition;
     if (!Recognition) return;
+    // A previous session that is still running is discarded, never delivered
+    collectorRef.current?.cancel();
     try {
       recognitionRef.current?.abort();
     } catch {}
     const rec = new Recognition();
+    const collector = createUtteranceCollector();
+    collectorRef.current = collector;
     rec.lang = lang;
     rec.interimResults = false;
+    rec.continuous = false;
     rec.maxAlternatives = 1;
-    rec.onresult = (event: any) => {
-      const transcript = event.results?.[0]?.[0]?.transcript;
-      if (typeof transcript === "string" && transcript.trim()) onText(transcript.trim());
-    };
+    // Results only accumulate; the single completed utterance is sent once, when recognition ends
+    rec.onresult = (event: any) => collector.addResults(event.results);
     rec.onerror = (event: any) => {
+      if (event?.error === "aborted") collector.cancel();
       if (event?.error && event.error !== "aborted" && event.error !== "no-speech") {
         onError?.(event.error === "not-allowed" ? "Microphone permission was denied." : "Voice input didn't work. Please type instead.");
       }
     };
-    rec.onend = () => setListening(false);
+    rec.onend = () => {
+      setListening(false);
+      const text = collector.finish();
+      if (text) onText(text);
+    };
     recognitionRef.current = rec;
     setListening(true);
     try {

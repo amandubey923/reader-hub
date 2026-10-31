@@ -6,15 +6,17 @@ export type BodhiMood = "idle" | "thinking" | "speaking" | "happy" | "error";
 
 interface BodhiRobotProps {
   mood: BodhiMood;
-  size?: number;
+  /** Height of the figure: a number of pixels or any CSS length (e.g. a responsive clamp()). Width follows. */
+  size?: number | string;
   /** Head follows the pointer when hovering (desktop). */
   interactive?: boolean;
+  /** Holds an open book; without it the arms rest at the sides. */
   showBook?: boolean;
 }
 
 /**
- * Bodhi — a small CSS-3D robot sitting on an open book (Architect Ivory & Gold).
- * Pure CSS transforms and gradients; animations are paused for prefers-reduced-motion.
+ * Bodhi — a standing CSS-3D reading robot holding an open book (Architect Ivory & Gold).
+ * Pure CSS transforms and gradients (no assets); animations are paused for prefers-reduced-motion.
  */
 export default function BodhiRobot({ mood, size = 92, interactive = true, showBook = true }: BodhiRobotProps) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -38,13 +40,17 @@ export default function BodhiRobot({ mood, size = 92, interactive = true, showBo
       ref={rootRef}
       className="bodhi"
       data-mood={mood}
-      style={{ ["--s" as string]: `${size}px` }}
+      data-book={showBook ? "true" : "false"}
+      style={{ ["--s" as string]: typeof size === "number" ? `${size}px` : size }}
       onPointerMove={onPointerMove}
       onPointerLeave={onPointerLeave}
       aria-hidden="true"
     >
       <div className="bodhi-stage">
+        <span className="bodhi-shadow" />
         <div className="bodhi-bot">
+          <span className="bodhi-ear bodhi-ear-l" />
+          <span className="bodhi-ear bodhi-ear-r" />
           <div className="bodhi-antenna">
             <span className="bodhi-bulb" />
           </div>
@@ -58,25 +64,29 @@ export default function BodhiRobot({ mood, size = 92, interactive = true, showBo
                 <i />
               </span>
             </div>
-            <span className="bodhi-ear bodhi-ear-l" />
-            <span className="bodhi-ear bodhi-ear-r" />
+            <span className="bodhi-cheek bodhi-cheek-l" />
+            <span className="bodhi-cheek bodhi-cheek-r" />
           </div>
           <div className="bodhi-body">
             <span className="bodhi-core" />
           </div>
-          <span className="bodhi-arm bodhi-arm-l" />
-          <span className="bodhi-arm bodhi-arm-r" />
           <span className="bodhi-leg bodhi-leg-l" />
           <span className="bodhi-leg bodhi-leg-r" />
+          {showBook && (
+            <div className="bodhi-book">
+              <span className="bodhi-cover" />
+              <span className="bodhi-page bodhi-page-l" />
+              <span className="bodhi-page bodhi-page-r" />
+              <span className="bodhi-flutter" />
+            </div>
+          )}
+          <span className="bodhi-arm bodhi-arm-l">
+            <i />
+          </span>
+          <span className="bodhi-arm bodhi-arm-r">
+            <i />
+          </span>
         </div>
-        {showBook && (
-          <div className="bodhi-book">
-            <span className="bodhi-cover" />
-            <span className="bodhi-page bodhi-page-l" />
-            <span className="bodhi-page bodhi-page-r" />
-            <span className="bodhi-flutter" />
-          </div>
-        )}
       </div>
     </div>
   );
