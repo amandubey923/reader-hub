@@ -2,13 +2,14 @@
 
 import React, { useState, useMemo, useDeferredValue, useRef } from "react";
 import Link from "next/link";
-import { BOOKS, Category, getBooksByCategory, searchBooks, isTechnicalBook, matchesTechnicalSubcategory, matchesPhilosophySubcategory } from "@/data/books";
+import { BOOKS, Category, getBooksByCategory, isTechnicalBook, matchesTechnicalSubcategory, matchesPhilosophySubcategory } from "@/data/books";
 import HeroVideo from "@/components/HeroVideo";
 import ContinueReading from "@/components/ContinueReading";
 import FeaturedCarousel from "@/components/FeaturedCarousel";
 import ReadingUniverse from "@/components/visual/ReadingUniverse";
 import CategoryPills from "@/components/CategoryPills";
 import BookCard from "@/components/BookCard";
+import { searchCatalog } from "@/lib/search/catalog-search";
 import SmartRecommendations from "@/components/recommendations/SmartRecommendations";
 import { useAuth } from "@/context/AuthContext";
 import LandingExperience, { LandingSplash } from "@/components/landing-experience/LandingExperience";
@@ -23,6 +24,8 @@ export default function HomePage() {
   const [displayLimit, setDisplayLimit] = useState(20);
   const librarySectionRef = useRef<HTMLDivElement>(null);
 
+  const search = useMemo(() => (deferredSearchQuery.trim() ? searchCatalog(deferredSearchQuery) : null), [deferredSearchQuery]);
+
   const filteredBooks = useMemo(() => {
     let result = getBooksByCategory(
       selectedCategory,
@@ -32,8 +35,9 @@ export default function HomePage() {
         ? selectedPhilosophySubcategory
         : undefined
     );
-    if (deferredSearchQuery.trim()) {
-      result = searchBooks(deferredSearchQuery).filter((b) => {
+    if (search) {
+      // Ranked best-match results from the shared engine, then narrowed to the selected category
+      result = search.hits.map((h) => h.book).filter((b) => {
         if (selectedCategory === "All") return true;
         if (selectedCategory === "Technical Knowledge") {
           if (selectedSubcategory !== "All Technical") {
@@ -51,7 +55,7 @@ export default function HomePage() {
       });
     }
     return result;
-  }, [selectedCategory, selectedSubcategory, selectedPhilosophySubcategory, deferredSearchQuery]);
+  }, [selectedCategory, selectedSubcategory, selectedPhilosophySubcategory, search]);
 
   const handleCategoryChange = (cat: Category) => {
     setSelectedCategory(cat);
@@ -177,6 +181,15 @@ export default function HomePage() {
               <p className="text-sm text-[var(--text-secondary)] max-w-md mx-auto mb-6">
                 Try searching with a different keyword or select another genre.
               </p>
+              {search?.didYouMean && (
+                <p className="text-sm text-[var(--foreground)] mb-6">
+                  Did you mean{" "}
+                  <button type="button" onClick={() => handleSearchChange(search.didYouMean!)} className="font-semibold text-[var(--accent)] hover:underline cursor-pointer">
+                    “{search.didYouMean}”
+                  </button>
+                  ?
+                </p>
+              )}
               <button
                 onClick={() => {
                   setSelectedCategory("All");
@@ -192,7 +205,7 @@ export default function HomePage() {
             <>
               <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
                 {visibleBooks.map((book) => (
-                  <BookCard key={book.id} book={book} />
+                  <BookCard key={book.id} book={book} highlightTokens={search?.tokens} />
                 ))}
               </div>
 

@@ -5,15 +5,17 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Book, BOOKS, CATEGORIES } from "@/data/books";
+import { BOOKS } from "@/data/books";
 import { useLibrary } from "@/context/LibraryContext";
+import { FIELD_LABELS, getSearchSuggestions, searchCatalog } from "@/lib/search/catalog-search";
+import Highlight from "./search/Highlight";
 
 interface SearchModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const ALL_AUTHORS = Array.from(new Set(BOOKS.map((b) => b.author)));
+const MAX_RESULTS = 8;
 
 export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
   const [query, setQuery] = useState("");
@@ -99,44 +101,17 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
     return actions;
   }, [lastReadBook, readingHistory, favorites]);
 
-  // Instant keyword suggestions based on actual authors and categories
-  const suggestedKeywords = useMemo(() => {
-    const q = query.toLowerCase().trim();
-    if (!q || q.length < 2) return [];
+  // Instant suggestions from real authors, categories and topics
+  const suggestedKeywords = useMemo(() => getSearchSuggestions(query, 3).map((s) => s.value), [query]);
 
-    const suggestions: string[] = [];
-
-    // Match authors
-    for (const a of ALL_AUTHORS) {
-      if (a.toLowerCase().includes(q) && !suggestions.includes(a)) {
-        suggestions.push(a);
-      }
-    }
-
-    // Match categories
-    for (const c of CATEGORIES) {
-      if (c !== "All" && c.toLowerCase().includes(q) && !suggestions.includes(c)) {
-        suggestions.push(c);
-      }
-    }
-
-    return suggestions.slice(0, 3);
-  }, [query]);
-
-  const results = useMemo(() => {
-    const q = query.toLowerCase().trim();
-    if (!q) {
-      return BOOKS.slice(0, 6); // show popular initial items
-    }
-
-    const words = q.split(/\s+/).filter(Boolean);
-
-    return BOOKS.filter((book) => {
-      const isTech = book.category.includes("SQL") || book.category.includes("DSA") || book.category.includes("System") || book.category.includes("OOP") || book.category.includes("Web") || book.category.includes("Computer") || book.category.includes("Programming") || (book.resourceType && book.resourceType !== "Book");
-      const target = `${book.title} ${book.author} ${book.category} ${isTech ? "Technical Knowledge" : ""} ${book.resourceType || ""} ${book.description} ${book.tags.join(" ")}`.toLowerCase();
-      return words.every((w) => target.includes(w));
-    }).slice(0, 8);
-  }, [query]);
+  // Same ranked, typo-tolerant engine as the library page
+  const search = useMemo(() => (query.trim() ? searchCatalog(query) : null), [query]);
+  const results = useMemo(() => (search ? search.hits.slice(0, MAX_RESULTS).map((h) => h.book) : BOOKS.slice(0, 6)), [search]);
+  const matchedFieldById = useMemo(
+    () => new Map((search?.hits || []).slice(0, MAX_RESULTS).map((h) => [h.book.id, h.matchedField])),
+    [search]
+  );
+  const tokens = search?.tokens || [];
 
   useEffect(() => {
     if (isOpen) {
@@ -190,25 +165,6 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, results, selectedIndex, router, onClose, query, quickActions, totalNavigableCount]);
-
-  // Helper to highlight matching query text
-  const highlightMatch = (text: string, targetQuery: string) => {
-    if (!targetQuery.trim()) return text;
-    const parts = text.split(new RegExp(`(${targetQuery.trim()})`, "gi"));
-    return (
-      <span>
-        {parts.map((part, i) =>
-          part.toLowerCase() === targetQuery.toLowerCase().trim() ? (
-            <span key={i} className="text-[var(--accent)] font-bold bg-[var(--accent)]/15 px-0.5 rounded">
-              {part}
-            </span>
-          ) : (
-            part
-          )
-        )}
-      </span>
-    );
-  };
 
   if (!isOpen || !mounted) return null;
 
@@ -318,8 +274,22 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
           )}
 
           <div className="px-3 py-1.5 text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider pt-2">
-            {query.trim() === "" ? "✨ Featured Masterworks" : `Found ${results.length} Matching Books`}
+            {!search
+              ? "✨ Featured Masterworks"
+              : search.partial
+              ? `Closest matches (no book matched every word)`
+              : `Found ${search.hits.length} Matching Book${search.hits.length === 1 ? "" : "s"}`}
           </div>
+
+          {search?.didYouMean && (
+            <div className="px-3 py-2 text-xs text-[var(--foreground)]">
+              Did you mean{" "}
+              <button type="button" onClick={() => setQuery(search.didYouMean!)} className="font-semibold text-[var(--accent)] hover:underline cursor-pointer">
+                “{search.didYouMean}”
+              </button>
+              ?
+            </div>
+          )}
 
           {results.length === 0 ? (
             <div className="text-center py-12 px-4 space-y-3">
@@ -364,14 +334,17 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <h4 className="font-serif font-bold text-sm text-[var(--foreground)] truncate">
-                        {highlightMatch(book.title, query)}
+                        <Highlight text={book.title} tokens={tokens} />
                       </h4>
                       <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--secondary)] text-[var(--accent)] font-semibold border border-[var(--border)]">
                         {book.category}
                       </span>
                     </div>
                     <p className="text-xs text-[var(--text-secondary)] truncate mt-0.5 font-medium">
-                      by {highlightMatch(book.author, query)} • {book.year} • {book.language}
+                      by <Highlight text={book.author} tokens={tokens} /> • {book.year} • {book.language}
+                      {matchedFieldById.get(book.id) && !["title", "author"].includes(matchedFieldById.get(book.id)!) && (
+                        <> • matched {FIELD_LABELS[matchedFieldById.get(book.id)!]}</>
+                      )}
                     </p>
                     <p className="text-[11px] text-[var(--text-secondary)]/80 truncate mt-0.5">
                       {book.excerpt || book.description}
@@ -383,6 +356,16 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
                 </Link>
               );
             })
+          )}
+
+          {search && search.hits.length > MAX_RESULTS && (
+            <Link
+              href={`/library?q=${encodeURIComponent(query.trim())}`}
+              onClick={onClose}
+              className="block px-3 py-3 text-center text-xs font-semibold text-[var(--accent)] hover:underline"
+            >
+              See all {search.hits.length} results in the library →
+            </Link>
           )}
         </div>
 

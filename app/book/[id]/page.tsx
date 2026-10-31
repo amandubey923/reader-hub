@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { Metadata } from "next";
-import { BOOKS, getBookById, getRelatedBooks } from "@/data/books";
+import { BOOKS, getBookById } from "@/data/books";
+import { getRelatedBooksWithReasons } from "@/lib/recommendations";
 import BookDetailClient from "./BookDetailClient";
 import { getAffiliateInfoForBook } from "@/lib/affiliate-config";
 
@@ -52,9 +53,11 @@ export default async function BookPage({ params }: BookPageProps) {
     notFound();
   }
 
-  const related = getRelatedBooks(book, 4);
+  // "More by {author}" on the page already lists the first four same-author books, so similar books add something new
+  const shownByAuthor = new Set(BOOKS.filter((b) => b.author === book.author && b.id !== book.id).slice(0, 4).map((b) => b.id));
+  const related = getRelatedBooksWithReasons(book, BOOKS.filter((b) => !shownByAuthor.has(b.id)), 4);
   const affiliateInfo = getAffiliateInfoForBook(book);
 
-  return <BookDetailClient book={book} relatedBooks={related} affiliateInfo={affiliateInfo} />;
+  return <BookDetailClient book={book} relatedBooks={related.map((r) => r.book)} relatedReasons={Object.fromEntries(related.map((r) => [r.book.id, r.reason]))} affiliateInfo={affiliateInfo} />;
 }
 

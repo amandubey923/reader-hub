@@ -96,7 +96,10 @@ import {
   deleteCloudFavorites,
   permanentFactoryResetCloudData,
   syncCertificateToCloud,
-  fetchCertificatesFromCloud,
+  backfillCertificatesToCloud,
+  flushAllPendingSyncs,
+  getLastCloudVerification,
+  verifyCloudCopy,
 } from "@/lib/firestore-sync";
 import {
   recordPublicActivity,
@@ -109,6 +112,7 @@ import {
   BookCompletionCertificate,
   createCertificateData,
   saveCertificate,
+  getStoredCertificates,
   getCertificateForBook as getStoredBookCertificate,
 } from "@/lib/certificate";
 import CompletionCertificateModal from "@/components/certificate/CompletionCertificateModal";
@@ -541,6 +545,8 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         const actTime = getWebsiteActiveTimeData(user.uid);
         // flushPendingActivitySyncs cancels existing debounce timers and writes immediately.
         flushPendingActivitySyncs(user.uid, act, actTime);
+        // Also send any other pending debounced writes (progress, highlights, bookmarks, collections...)
+        flushAllPendingSyncs();
       }
     };
 
@@ -689,14 +695,27 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         }
       ).catch(() => {});
 
-      // Sync cloud certificates into local storage for offline and instant display
-      fetchCertificatesFromCloud(user.uid).then((cloudCerts) => {
-        if (cloudCerts && typeof cloudCerts === "object") {
-          Object.values(cloudCerts).forEach((c: any) => {
-            if (c && c.bookId) saveCertificate(c, user.uid);
-          });
-        }
-      }).catch(() => {});
+      // Upload certificates that exist only on this device, then cache the cloud copy for offline display
+      backfillCertificatesToCloud(user.uid, getStoredCertificates(user.uid))
+        .then((cloudCerts) => {
+          if (cloudCerts && typeof cloudCerts === "object") {
+            Object.values(cloudCerts).forEach((c: any) => {
+              if (c && c.bookId) saveCertificate(c, user.uid);
+            });
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          // Read the account back to confirm the cloud holds everything this device has (at most daily, or
+          // sooner if the last check found gaps). Read-only for local data; gaps are retried by the next sync.
+          const last = getLastCloudVerification(user.uid);
+          const due = !last || !last.complete || Date.now() - last.verifiedAt > 24 * 60 * 60 * 1000;
+          if (due && !isCancelled) {
+            setTimeout(() => {
+              if (!isCancelled) verifyCloudCopy(user.uid, getStoredCertificates(user.uid)).catch(() => {});
+            }, 8000);
+          }
+        });
     };
 
     performSync();

@@ -6,6 +6,7 @@ import Image from "next/image";
 import { Book } from "@/data/books";
 import { useLibrary } from "@/context/LibraryContext";
 import CardTilt from "./visual/CardTilt";
+import Highlight from "./search/Highlight";
 
 interface BookCardFavoriteButtonProps {
   bookId: string;
@@ -65,6 +66,10 @@ export interface BookCardProps {
   dismissAriaLabel?: string;
   isFavorited?: boolean;
   onToggleFavorite?: (bookId: string) => void;
+  /** Search tokens to highlight in the title and author (optional). */
+  highlightTokens?: string[];
+  /** Short explanation shown under the card, e.g. why it is recommended (optional). */
+  reason?: string;
 }
 
 function BookCardComponent({
@@ -74,6 +79,8 @@ function BookCardComponent({
   dismissAriaLabel,
   isFavorited,
   onToggleFavorite,
+  highlightTokens,
+  reason,
 }: BookCardProps) {
   return (
     <CardTilt className="h-full">
@@ -159,12 +166,20 @@ function BookCardComponent({
               className="block group/title"
             >
               <h3 className="font-serif font-black text-[13px] sm:text-[16px] text-[var(--foreground)] group-hover/title:text-[var(--accent)] transition-colors line-clamp-1 leading-snug">
-                {book.title}
+                {highlightTokens?.length ? <Highlight text={book.title} tokens={highlightTokens} /> : book.title}
               </h3>
             </Link>
             <p className="text-[11px] sm:text-xs text-[var(--text-secondary)] font-semibold mt-1 line-clamp-1">
-              by <span className="text-[var(--foreground)] font-bold">{book.author}</span>
+              by{" "}
+              <span className="text-[var(--foreground)] font-bold">
+                {highlightTokens?.length ? <Highlight text={book.author} tokens={highlightTokens} /> : book.author}
+              </span>
             </p>
+            {reason && (
+              <p className="mt-1.5 line-clamp-2 text-[10px] sm:text-[11px] font-medium leading-snug text-[var(--accent)]" title={reason}>
+                {reason}
+              </p>
+            )}
 
             {!compact && (
               <p className="hidden sm:block text-[12px] text-[var(--text-secondary)] mt-2 line-clamp-2 leading-relaxed font-normal">

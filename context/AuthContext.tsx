@@ -109,6 +109,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const authInstance = getFirebaseAuth();
     if (!authInstance) return;
     try {
+      // Send the last few seconds of debounced changes while this account can still write them (capped so logout never hangs).
+      // The account's local copy is kept either way and is reconciled on the next sign-in.
+      try {
+        const { flushAllPendingSyncs } = await import("@/lib/firestore-sync");
+        await Promise.race([flushAllPendingSyncs(), new Promise((resolve) => setTimeout(resolve, 3000))]);
+      } catch {}
       await signOut(authInstance);
       setUser(null);
     } catch (err: any) {

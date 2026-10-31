@@ -95,3 +95,60 @@ test("book IDs that could break storage keys are rejected", () => {
   assert.equal(isSafeBookId(""), false);
   assert.equal(isSafeBookId(42), false);
 });
+
+// ---------------------------------------------------------------- Account-level merges
+
+test("collections: union by ID, newest metadata wins, idempotent", async () => {
+  const { mergeCollectionLists } = await import("../lib/reading-merge");
+  const cloud = [{ id: "c1", name: "Old name", bookIds: ["a"], createdAt: 1, updatedAt: 10 }];
+  const local = [
+    { id: "c1", name: "New name", bookIds: ["b"], createdAt: 1, updatedAt: 20 },
+    { id: "c2", name: "Local only", bookIds: [], createdAt: 5, updatedAt: 5 },
+  ];
+  const first = mergeCollectionLists(cloud, local);
+  assert.equal(first.cloudNeedsUpdate, true);
+  assert.deepEqual(first.merged.find((c) => c.id === "c1")!.bookIds, ["a", "b"]);
+  assert.equal(first.merged.find((c) => c.id === "c1")!.name, "New name");
+  const again = mergeCollectionLists(first.merged, local);
+  assert.equal(again.cloudNeedsUpdate, false, "nothing new to upload the second time");
+  assert.deepEqual(again.merged, first.merged);
+  // An older local copy never renames the cloud collection
+  assert.equal(mergeCollectionLists([{ ...cloud[0], updatedAt: 30 }], local).merged[0].name, "Old name");
+});
+
+test("reflections, dismissals and active time only ever grow", async () => {
+  const { mergeReflectionMaps, mergeShelfDismissalMaps, mergeActiveTime } = await import("../lib/reading-merge");
+  const r = mergeReflectionMaps({ a: { bookId: "a", reflection: "cloud", completedAt: 20 } }, { a: { bookId: "a", reflection: "older", completedAt: 10 }, b: { bookId: "b", reflection: "new", completedAt: 5 } });
+  assert.equal(r.merged.a.reflection, "cloud");
+  assert.equal(r.merged.b.reflection, "new");
+  assert.equal(r.cloudNeedsUpdate, true);
+  assert.equal(mergeReflectionMaps(r.merged, r.merged).cloudNeedsUpdate, false);
+
+  const d = mergeShelfDismissalMaps({ s: { x: true } }, { s: { y: true }, t: { z: true } });
+  assert.deepEqual(d.merged, { s: { x: true, y: true }, t: { z: true } });
+  assert.equal(mergeShelfDismissalMaps(d.merged, { s: { x: true } }).cloudNeedsUpdate, false);
+
+  const t = mergeActiveTime({ totalActiveSeconds: 100, daily: { d1: 100 }, lastUpdated: 1 }, { totalActiveSeconds: 80, daily: { d1: 60, d2: 20 }, lastUpdated: 2 });
+  assert.deepEqual(t.merged.daily, { d1: 100, d2: 20 }, "per-day maxima, never summed");
+  assert.equal(t.merged.totalActiveSeconds, 100);
+  assert.equal(t.cloudNeedsUpdate, true);
+  assert.equal(mergeActiveTime(t.merged, t.merged).cloudNeedsUpdate, false);
+});
+
+test("findItemsMissingFromCloud lists exactly what only this device holds", async () => {
+  const { findItemsMissingFromCloud } = await import("../lib/reading-merge");
+  const local = {
+    favorites: ["a", "b"],
+    readingHistory: [{ bookId: "a", page: 50, totalPages: 100, progress: 50, lastReadAt: 1 }],
+    bookmarks: { a: [{ id: "bm1", bookId: "a", page: 3, createdAt: 1 }, { id: "bm2", bookId: "a", page: 7, createdAt: 1 }] },
+    annotations: { a: { highlights: [{ id: "h1" } as any], notes: [], drawings: { 4: [] as any } } },
+  };
+  const cloud = {
+    favorites: ["a"],
+    readingHistory: [{ bookId: "a", page: 60, totalPages: 100, progress: 60, lastReadAt: 2 }],
+    bookmarks: { a: [{ id: "other-id", bookId: "a", page: 3, createdAt: 1 }] },
+    annotations: { a: { highlights: [], notes: [], drawings: {} } },
+  };
+  assert.deepEqual(findItemsMissingFromCloud(local, cloud).sort(), ["bookmark:a:bm2", "drawing:a:4", "favorite:b", "highlight:a:h1"]);
+  assert.deepEqual(findItemsMissingFromCloud(local, { ...local, readingHistory: cloud.readingHistory }), []);
+});

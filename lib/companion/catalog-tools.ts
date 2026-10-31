@@ -5,6 +5,8 @@
 
 import { BOOKS, Book } from "@/data/books";
 import { tokenize } from "./retrieval";
+import { searchCatalog as rankCatalog } from "@/lib/search/catalog-search";
+import { getPageCount } from "@/lib/search/book-meta";
 import type { CompanionBookCard } from "./types";
 
 export const CATALOG_TOOL_DECLARATIONS = [
@@ -64,7 +66,7 @@ function summarizeBook(book: Book) {
     category: book.category,
     language: book.language,
     year: book.year,
-    pages: book.pages,
+    pages: getPageCount(book),
     rating: book.rating,
     tags: (book.tags || []).slice(0, 6),
     description: (book.description || "").slice(0, 280),
@@ -76,29 +78,18 @@ export function searchCatalog(args: { query?: unknown; category?: unknown; langu
   const category = typeof args.category === "string" ? args.category.trim().toLowerCase() : "";
   const language = typeof args.language === "string" ? args.language.trim().toLowerCase() : "";
   const limit = Math.min(8, Math.max(1, Number.isInteger(args.limit) ? (args.limit as number) : 6));
+  // Stopwords are dropped so natural phrasing ("books about stoicism for beginners") still ranks well
   const terms = tokenize(query);
 
-  const scored = BOOKS.map((book) => {
-    if (category && book.category.toLowerCase() !== category) return null;
-    if (language && !book.language.toLowerCase().includes(language)) return null;
-    if (!terms.length) return { book, score: book.rating || 0 };
+  const inScope = (book: Book) =>
+    (!category || book.category.toLowerCase() === category) && (!language || book.language.toLowerCase().includes(language));
 
-    const title = book.title.toLowerCase();
-    const author = book.author.toLowerCase();
-    const tags = (book.tags || []).join(" ").toLowerCase();
-    const body = `${book.category} ${book.description}`.toLowerCase();
-    let score = 0;
-    for (const t of terms) {
-      if (title.includes(t)) score += 5;
-      if (author.includes(t)) score += 4;
-      if (tags.includes(t)) score += 3;
-      if (body.includes(t)) score += 1;
-    }
-    return score > 0 ? { book, score: score + (book.rating || 0) / 10 } : null;
-  }).filter((x): x is { book: Book; score: number } => Boolean(x));
+  // Same ranked, typo-tolerant engine as the site search
+  const ranked = terms.length
+    ? rankCatalog(terms.join(" ")).hits.map((h) => h.book).filter(inScope)
+    : BOOKS.filter(inScope).sort((a, b) => (b.rating || 0) - (a.rating || 0));
 
-  scored.sort((a, b) => b.score - a.score);
-  return { results: scored.slice(0, limit).map((s) => summarizeBook(s.book)), totalMatches: scored.length };
+  return { results: ranked.slice(0, limit).map(summarizeBook), totalMatches: ranked.length };
 }
 
 export function getBookDetails(args: { bookId?: unknown }) {

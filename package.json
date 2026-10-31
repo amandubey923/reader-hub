@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --import tsx --test \"tests/**/*.test.ts\"",
+    "test": "node --experimental-test-module-mocks --import tsx --test \"tests/**/*.test.ts\"",
     "ingest-batch": "tsx scripts/ingest-batch.ts",
     "import-books": "tsx scripts/import-books.ts",
     "watch-books": "tsx scripts/watch-books.ts"

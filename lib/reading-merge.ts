@@ -7,7 +7,11 @@ import type {
   BookAnnotations,
   BookmarkItem,
   BookReadingMemory,
+  BookReflection,
+  ReadingCollection,
   ReadingProgressItem,
+  ShelfDismissalsMap,
+  WebsiteActiveTimeData,
 } from "./reader-storage";
 
 export const DEFAULT_TOTAL_PAGES = 100;
@@ -154,4 +158,160 @@ export function mergeReadingMemory(a: BookReadingMemory | undefined, b: BookRead
  */
 export function isSafeBookId(id: unknown): id is string {
   return typeof id === "string" && /^[^:\s]{1,200}$/.test(id);
+}
+
+// ---------------------------------------------------------------- Account-level merges (cloud ⇄ device)
+// Each returns the merged value plus whether the cloud copy is missing something, so callers only write when needed.
+// All are unions or maxima: running them again with the same inputs changes nothing (idempotent).
+
+/** Collections merged by ID: book lists are unioned; name/description/colour come from the most recently updated copy. */
+export function mergeCollectionLists(
+  cloud: ReadingCollection[] = [],
+  local: ReadingCollection[] = []
+): { merged: ReadingCollection[]; cloudNeedsUpdate: boolean } {
+  const byId = new Map<string, ReadingCollection>();
+  for (const c of Array.isArray(cloud) ? cloud : []) if (c?.id) byId.set(c.id, { ...c, bookIds: [...(c.bookIds || [])] });
+  let cloudNeedsUpdate = false;
+  for (const c of Array.isArray(local) ? local : []) {
+    if (!c?.id) continue;
+    const ex = byId.get(c.id);
+    if (!ex) {
+      byId.set(c.id, { ...c, bookIds: [...(c.bookIds || [])] });
+      cloudNeedsUpdate = true;
+      continue;
+    }
+    const localIsNewer = (c.updatedAt || 0) > (ex.updatedAt || 0);
+    const bookIds = Array.from(new Set([...(ex.bookIds || []), ...(c.bookIds || [])]));
+    if (bookIds.length > (ex.bookIds || []).length || localIsNewer) cloudNeedsUpdate = true;
+    byId.set(c.id, { ...ex, ...(localIsNewer ? c : {}), bookIds, updatedAt: Math.max(ex.updatedAt || 0, c.updatedAt || 0) });
+  }
+  return { merged: Array.from(byId.values()), cloudNeedsUpdate };
+}
+
+/** Reflections merged per book; the more recent reflection wins. */
+export function mergeReflectionMaps(
+  cloud: Record<string, BookReflection> = {},
+  local: Record<string, BookReflection> = {}
+): { merged: Record<string, BookReflection>; cloudNeedsUpdate: boolean } {
+  const merged: Record<string, BookReflection> = { ...(cloud || {}) };
+  let cloudNeedsUpdate = false;
+  for (const [bookId, ref] of Object.entries(local || {})) {
+    if (!ref) continue;
+    if (!merged[bookId] || (ref.completedAt || 0) > (merged[bookId].completedAt || 0)) {
+      merged[bookId] = ref;
+      cloudNeedsUpdate = true;
+    }
+  }
+  return { merged, cloudNeedsUpdate };
+}
+
+/** Shelf dismissals are a set of (section, book) flags, so they are unioned. */
+export function mergeShelfDismissalMaps(
+  cloud: ShelfDismissalsMap = {},
+  local: ShelfDismissalsMap = {}
+): { merged: ShelfDismissalsMap; cloudNeedsUpdate: boolean } {
+  const merged: ShelfDismissalsMap = {};
+  for (const [sec, m] of Object.entries(cloud || {})) merged[sec] = { ...(m || {}) };
+  let cloudNeedsUpdate = false;
+  for (const [sec, m] of Object.entries(local || {})) {
+    for (const [bookId, flag] of Object.entries(m || {})) {
+      if (!flag) continue;
+      if (!merged[sec]?.[bookId]) cloudNeedsUpdate = true;
+      merged[sec] = { ...(merged[sec] || {}), [bookId]: true };
+    }
+  }
+  return { merged, cloudNeedsUpdate };
+}
+
+/** Active time: per-day maxima (never summed, so re-running cannot double count). */
+export function mergeActiveTime(
+  cloud: Partial<WebsiteActiveTimeData> | undefined,
+  local: Partial<WebsiteActiveTimeData> | undefined
+): { merged: WebsiteActiveTimeData; cloudNeedsUpdate: boolean } {
+  const c = cloud || {};
+  const l = local || {};
+  const maxDaily = (a: Record<string, number> = {}, b: Record<string, number> = {}) => {
+    const out: Record<string, number> = { ...a };
+    for (const [k, v] of Object.entries(b)) out[k] = Math.max(out[k] || 0, Number(v) || 0);
+    return out;
+  };
+  const merged: WebsiteActiveTimeData = {
+    totalActiveSeconds: Math.max(c.totalActiveSeconds || 0, l.totalActiveSeconds || 0),
+    daily: maxDaily(c.daily, l.daily),
+    explorationDaily: maxDaily(c.explorationDaily, l.explorationDaily),
+    totalExplorationSeconds: Math.max(c.totalExplorationSeconds || 0, l.totalExplorationSeconds || 0),
+    lastUpdated: Math.max(c.lastUpdated || 0, l.lastUpdated || 0),
+  };
+  const cloudNeedsUpdate =
+    merged.totalActiveSeconds > (c.totalActiveSeconds || 0) ||
+    Object.entries(l.daily || {}).some(([k, v]) => (Number(v) || 0) > ((c.daily || {})[k] || 0));
+  return { merged, cloudNeedsUpdate };
+}
+
+export interface AccountSnapshot {
+  favorites?: string[];
+  readingHistory?: ReadingProgressItem[];
+  completedBookIds?: string[];
+  collections?: ReadingCollection[];
+  reflections?: Record<string, BookReflection>;
+  bookmarks?: Record<string, BookmarkItem[]>;
+  annotations?: Record<string, Partial<BookAnnotations>>;
+  readingMemories?: Record<string, BookReadingMemory>;
+  certificates?: Record<string, unknown>;
+}
+
+/**
+ * Lists every important record held on this device that the cloud copy does not contain.
+ * Used to verify a backfill by reading the cloud back; an empty list means the cloud holds a complete copy.
+ */
+export function findItemsMissingFromCloud(local: AccountSnapshot, cloud: AccountSnapshot): string[] {
+  const missing: string[] = [];
+
+  const favs = new Set(cloud.favorites || []);
+  for (const id of local.favorites || []) if (!favs.has(id)) missing.push(`favorite:${id}`);
+
+  const progress = new Map((cloud.readingHistory || []).map((h) => [h.bookId, h]));
+  for (const h of local.readingHistory || []) {
+    const c = progress.get(h.bookId);
+    if (!c || (c.page || 0) < (h.page || 0)) missing.push(`progress:${h.bookId}`);
+  }
+
+  const completed = new Set(cloud.completedBookIds || []);
+  for (const id of local.completedBookIds || []) if (!completed.has(id)) missing.push(`completed:${id}`);
+
+  const cols = new Map((cloud.collections || []).map((c) => [c.id, c]));
+  for (const c of local.collections || []) {
+    const cc = cols.get(c.id);
+    if (!cc) missing.push(`collection:${c.id}`);
+    else for (const b of c.bookIds || []) if (!(cc.bookIds || []).includes(b)) missing.push(`collection:${c.id}:${b}`);
+  }
+
+  for (const id of Object.keys(local.reflections || {})) if (!(cloud.reflections || {})[id]) missing.push(`reflection:${id}`);
+
+  for (const [bookId, list] of Object.entries(local.bookmarks || {})) {
+    const cloudList = (cloud.bookmarks || {})[bookId] || [];
+    const ids = new Set(cloudList.map((b) => b.id));
+    const pages = new Set(cloudList.map((b) => b.page));
+    // Bookmarks are one per page, so a bookmark on a page the cloud already has is not missing
+    for (const b of list || []) if (!ids.has(b.id) && !pages.has(b.page)) missing.push(`bookmark:${bookId}:${b.id}`);
+  }
+
+  for (const [bookId, ann] of Object.entries(local.annotations || {})) {
+    const c = (cloud.annotations || {})[bookId] || {};
+    const hl = new Set((c.highlights || []).map((x) => x.id));
+    const nt = new Set((c.notes || []).map((x) => x.id));
+    for (const h of ann.highlights || []) if (!hl.has(h.id)) missing.push(`highlight:${bookId}:${h.id}`);
+    for (const n of ann.notes || []) if (!nt.has(n.id)) missing.push(`note:${bookId}:${n.id}`);
+    for (const page of Object.keys(ann.drawings || {})) {
+      if (!(c.drawings || {})[page as unknown as number]) missing.push(`drawing:${bookId}:${page}`);
+    }
+  }
+
+  for (const [bookId, mem] of Object.entries(local.readingMemories || {})) {
+    const c = (cloud.readingMemories || {})[bookId];
+    if (!c || (c.totalSeconds || 0) < (mem.totalSeconds || 0)) missing.push(`memory:${bookId}`);
+  }
+
+  for (const id of Object.keys(local.certificates || {})) if (!(cloud.certificates || {})[id]) missing.push(`certificate:${id}`);
+  return missing;
 }

@@ -51,6 +51,11 @@ import {
   mergeAnnotations,
   mergeBookmarkLists,
   mergeProgressItems,
+  mergeCollectionLists,
+  mergeReflectionMaps,
+  mergeShelfDismissalMaps,
+  mergeActiveTime,
+  findItemsMissingFromCloud,
 } from "./reading-merge";
 import { UserEntitlement, DEFAULT_FREE_ENTITLEMENT } from "./entitlements";
 import { BOOKS, getBookById } from "@/data/books";
@@ -68,7 +73,25 @@ export interface CloudFullUserData {
   completedBookIds?: string[];
   entitlement?: UserEntitlement;
   bookmarks?: Record<string, BookmarkItem[]>;
+  /** Sections whose cloud read failed. Their local copies are kept and nothing is written over them. */
+  failedSections?: CloudSection[];
 }
+
+export const CLOUD_SECTIONS = [
+  "favorites",
+  "reading_progress",
+  "activity",
+  "active_time",
+  "reading_memory",
+  "annotations",
+  "collections",
+  "reflections",
+  "shelf_dismissals",
+  "entitlement",
+  "bookmarks",
+  "completed_books",
+] as const;
+export type CloudSection = (typeof CLOUD_SECTIONS)[number];
 
 // In-memory debounce timers for non-blocking background writes
 const progressDebounceTimers: Record<string, NodeJS.Timeout> = {};
@@ -80,6 +103,53 @@ const reflectionsDebounceTimers: Record<string, NodeJS.Timeout> = {};
 const dismissalsDebounceTimers: Record<string, NodeJS.Timeout> = {};
 const annotationsDebounceTimers: Record<string, NodeJS.Timeout> = {};
 const bookmarksDebounceTimers: Record<string, NodeJS.Timeout> = {};
+
+// The write each pending debounce timer will perform, so it can be run early (flushed) instead of dropped
+const pendingWrites = new Map<string, () => Promise<void>>();
+
+function scheduleWrite(
+  timers: Record<string, NodeJS.Timeout>,
+  key: string,
+  delayMs: number,
+  write: () => Promise<void>
+): void {
+  if (timers[key]) clearTimeout(timers[key]);
+  const pendingKey = `${delayMs}:${key}`;
+  pendingWrites.set(pendingKey, write);
+  timers[key] = setTimeout(() => {
+    delete timers[key];
+    pendingWrites.delete(pendingKey);
+    write();
+  }, delayMs);
+}
+
+const ALL_DEBOUNCE_TIMERS = (): Record<string, NodeJS.Timeout>[] => [
+  progressDebounceTimers,
+  activityDebounceTimers,
+  activeTimeDebounceTimers,
+  memoryDebounceTimers,
+  collectionsDebounceTimers,
+  reflectionsDebounceTimers,
+  dismissalsDebounceTimers,
+  annotationsDebounceTimers,
+  bookmarksDebounceTimers,
+];
+
+/**
+ * Runs every pending debounced cloud write now and waits for them (each write handles its own errors).
+ * Call before signing out and when the page is hidden, so the last few seconds of changes reach Firestore.
+ */
+export async function flushAllPendingSyncs(): Promise<void> {
+  const writes = Array.from(pendingWrites.values());
+  pendingWrites.clear();
+  for (const timers of ALL_DEBOUNCE_TIMERS()) {
+    for (const k of Object.keys(timers)) {
+      clearTimeout(timers[k]);
+      delete timers[k];
+    }
+  }
+  await Promise.allSettled(writes.map((w) => w()));
+}
 
 // Firestore rejects batches larger than 500 writes
 const MAX_BATCH_WRITES = 450;
@@ -101,6 +171,7 @@ async function commitInChunks(
  * Prevents stale write triggers when switching or logging out accounts.
  */
 export function cancelAllPendingSyncTimers(): void {
+  pendingWrites.clear();
   Object.values(progressDebounceTimers).forEach(clearTimeout);
   Object.values(activityDebounceTimers).forEach(clearTimeout);
   Object.values(activeTimeDebounceTimers).forEach(clearTimeout);
@@ -138,6 +209,8 @@ export async function flushPendingActivitySyncs(
   // Cancel any in-flight debounce timers for these keys so they don't double-write
   const actKey = `${uid}_activity`;
   const atKey = `${uid}_activetime`;
+  pendingWrites.delete(`3000:${actKey}`);
+  pendingWrites.delete(`4000:${atKey}`);
   if (activityDebounceTimers[actKey]) {
     clearTimeout(activityDebounceTimers[actKey]);
     delete activityDebounceTimers[actKey];
@@ -207,149 +280,152 @@ export async function fetchFullCloudUserData(uid: string): Promise<CloudFullUser
     reflections: {},
     shelfDismissals: {},
     completedBookIds: [],
+    failedSections: [],
   };
 
   const currentDb = getFirebaseDb() || db;
-  if (!currentDb || !uid) return defaultResult;
-
-  try {
-    // 1. Fetch Cloud Favorites
-    const favsRef = collection(currentDb, "users", uid, "favorites");
-    const favsSnap = await getDocs(favsRef);
-    favsSnap.forEach((d) => {
-      if (d.id) defaultResult.favorites.push(d.id);
-    });
-
-    // 2. Fetch Cloud Reading Progress
-    const progRef = collection(currentDb, "users", uid, "reading_progress");
-    const progSnap = await getDocs(progRef);
-    progSnap.forEach((d) => {
-      const data = d.data();
-      if (data && typeof data.page === "number") {
-        defaultResult.readingHistory.push({
-          bookId: d.id,
-          page: data.page,
-          totalPages: data.totalPages || 100,
-          progress: data.progress || Math.round((data.page / (data.totalPages || 100)) * 100),
-          lastReadAt: data.lastReadAt?.toMillis
-            ? data.lastReadAt.toMillis()
-            : typeof data.lastReadAt === "number"
-            ? data.lastReadAt
-            : Date.now(),
-        });
-      }
-    });
-
-    // 3. Fetch Cloud Reading Activity & Streaks
-    const activityDocRef = doc(currentDb, "users", uid, "data", "activity");
-    const activityDocSnap = await getDoc(activityDocRef);
-    if (activityDocSnap.exists()) {
-      const actData = activityDocSnap.data();
-      if (actData && actData.daily) {
-        const calculated = calculateStreak(actData.daily);
-        defaultResult.readingActivity = {
-          daily: actData.daily,
-          currentStreak: calculated.currentStreak || actData.currentStreak || 0,
-          longestStreak: Math.max(calculated.longestStreak, actData.longestStreak || 0),
-          lastQualifiedDate: calculated.lastQualifiedDate || actData.lastQualifiedDate || null,
-        };
-      }
-    }
-
-    // 4. Fetch Cloud Website Active Time
-    const activeTimeDocRef = doc(currentDb, "users", uid, "data", "active_time");
-    const activeTimeDocSnap = await getDoc(activeTimeDocRef);
-    if (activeTimeDocSnap.exists()) {
-      const atData = activeTimeDocSnap.data();
-      if (atData) {
-        defaultResult.activeTime = {
-          totalActiveSeconds: atData.totalActiveSeconds || 0,
-          daily: atData.daily || {},
-          lastUpdated: atData.lastUpdated || Date.now(),
-        };
-      }
-    }
-
-    // 5. Fetch Cloud Reading Memories
-    const memoryDocRef = doc(currentDb, "users", uid, "data", "reading_memory");
-    const memoryDocSnap = await getDoc(memoryDocRef);
-    if (memoryDocSnap.exists()) {
-      const memData = memoryDocSnap.data();
-      if (memData && memData.memories) {
-        defaultResult.readingMemories = memData.memories;
-      }
-    }
-
-    // 6. Fetch Cloud Annotations
-    const annDocRef = doc(currentDb, "users", uid, "data", "annotations");
-    const annDocSnap = await getDoc(annDocRef);
-    if (annDocSnap.exists()) {
-      const annData = annDocSnap.data();
-      if (annData && annData.annotations) {
-        defaultResult.annotations = annData.annotations;
-      }
-    }
-
-    // 7. Fetch Cloud Collections
-    const colDocRef = doc(currentDb, "users", uid, "data", "collections");
-    const colDocSnap = await getDoc(colDocRef);
-    if (colDocSnap.exists()) {
-      const colData = colDocSnap.data();
-      if (colData && Array.isArray(colData.collections)) {
-        defaultResult.collections = colData.collections;
-      }
-    }
-
-    // 8. Fetch Cloud Reflections
-    const refDocRef = doc(currentDb, "users", uid, "data", "reflections");
-    const refDocSnap = await getDoc(refDocRef);
-    if (refDocSnap.exists()) {
-      const refData = refDocSnap.data();
-      if (refData && refData.reflections) {
-        defaultResult.reflections = refData.reflections;
-      }
-    }
-
-    // 9. Fetch Cloud Shelf Dismissals
-    const dismDocRef = doc(currentDb, "users", uid, "data", "shelf_dismissals");
-    const dismDocSnap = await getDoc(dismDocRef);
-    if (dismDocSnap.exists()) {
-      const dismData = dismDocSnap.data();
-      if (dismData && dismData.dismissals) {
-        defaultResult.shelfDismissals = dismData.dismissals;
-      }
-    }
-
-    // 10. Fetch Cloud Entitlement
-    const entitlementDocRef = doc(currentDb, "users", uid, "data", "entitlement");
-    const entitlementDocSnap = await getDoc(entitlementDocRef);
-    if (entitlementDocSnap.exists()) {
-      const entData = entitlementDocSnap.data();
-      if (entData) {
-        defaultResult.entitlement = entData as UserEntitlement;
-      }
-    }
-    // 10b. Fetch Cloud Bookmarks ({ bookmarks: { [bookId]: BookmarkItem[] } })
-    const bookmarksDocSnap = await getDoc(doc(currentDb, "users", uid, "data", "bookmarks"));
-    if (bookmarksDocSnap.exists()) {
-      const bmData = bookmarksDocSnap.data();
-      if (bmData && bmData.bookmarks && typeof bmData.bookmarks === "object") {
-        defaultResult.bookmarks = bmData.bookmarks;
-      }
-    }
-
-    // 11. Fetch Cloud Completed Books
-    const completedDocRef = doc(currentDb, "users", uid, "data", "completed_books");
-    const completedDocSnap = await getDoc(completedDocRef);
-    if (completedDocSnap.exists()) {
-      const compData = completedDocSnap.data();
-      if (compData && Array.isArray(compData.completedIds)) {
-        defaultResult.completedBookIds = compData.completedIds;
-      }
-    }
-  } catch (err) {
-    console.warn("[Firestore] Error fetching full cloud user data:", err);
+  if (!currentDb || !uid) {
+    defaultResult.failedSections = [...CLOUD_SECTIONS];
+    return defaultResult;
   }
+
+  // Each section is read independently: one failed read (offline, permission, quota) must not make the
+  // others look empty, and the caller is told exactly which sections could not be read.
+  const readSection = async (name: CloudSection, read: () => Promise<void>) => {
+    try {
+      await read();
+    } catch (err) {
+      defaultResult.failedSections!.push(name);
+      console.warn(`[Firestore] Could not read ${name}; it will not be overwritten this session:`, err);
+    }
+  };
+  const getDataDoc = (name: string) => getDoc(doc(currentDb, "users", uid, "data", name));
+
+  await Promise.all([
+    readSection("favorites", async () => {
+      const favsSnap = await getDocs(collection(currentDb, "users", uid, "favorites"));
+      favsSnap.forEach((d) => {
+        if (d.id) defaultResult.favorites.push(d.id);
+      });
+    }),
+
+    readSection("reading_progress", async () => {
+      const progSnap = await getDocs(collection(currentDb, "users", uid, "reading_progress"));
+      progSnap.forEach((d) => {
+        const data = d.data();
+        if (data && typeof data.page === "number") {
+          defaultResult.readingHistory.push({
+            bookId: d.id,
+            page: data.page,
+            totalPages: data.totalPages || 100,
+            progress: data.progress || Math.round((data.page / (data.totalPages || 100)) * 100),
+            lastReadAt: data.lastReadAt?.toMillis
+              ? data.lastReadAt.toMillis()
+              : typeof data.lastReadAt === "number"
+              ? data.lastReadAt
+              : Date.now(),
+          });
+        }
+      });
+    }),
+
+    readSection("activity", async () => {
+      const activityDocSnap = await getDataDoc("activity");
+      if (activityDocSnap.exists()) {
+        const actData = activityDocSnap.data();
+        if (actData && actData.daily) {
+          const calculated = calculateStreak(actData.daily);
+          defaultResult.readingActivity = {
+            daily: actData.daily,
+            currentStreak: calculated.currentStreak || actData.currentStreak || 0,
+            longestStreak: Math.max(calculated.longestStreak, actData.longestStreak || 0),
+            lastQualifiedDate: calculated.lastQualifiedDate || actData.lastQualifiedDate || null,
+          };
+        }
+      }
+    }),
+
+    readSection("active_time", async () => {
+      const activeTimeDocSnap = await getDataDoc("active_time");
+      if (activeTimeDocSnap.exists()) {
+        const atData = activeTimeDocSnap.data();
+        if (atData) {
+          defaultResult.activeTime = {
+            totalActiveSeconds: atData.totalActiveSeconds || 0,
+            daily: atData.daily || {},
+            explorationDaily: atData.explorationDaily || {},
+            totalExplorationSeconds: atData.totalExplorationSeconds || 0,
+            lastUpdated: atData.lastUpdated || Date.now(),
+          };
+        }
+      }
+    }),
+
+    readSection("reading_memory", async () => {
+      const memoryDocSnap = await getDataDoc("reading_memory");
+      if (memoryDocSnap.exists()) {
+        const memData = memoryDocSnap.data();
+        if (memData && memData.memories) defaultResult.readingMemories = memData.memories;
+      }
+    }),
+
+    readSection("annotations", async () => {
+      const annDocSnap = await getDataDoc("annotations");
+      if (annDocSnap.exists()) {
+        const annData = annDocSnap.data();
+        if (annData && annData.annotations) defaultResult.annotations = annData.annotations;
+      }
+    }),
+
+    readSection("collections", async () => {
+      const colDocSnap = await getDataDoc("collections");
+      if (colDocSnap.exists()) {
+        const colData = colDocSnap.data();
+        if (colData && Array.isArray(colData.collections)) defaultResult.collections = colData.collections;
+      }
+    }),
+
+    readSection("reflections", async () => {
+      const refDocSnap = await getDataDoc("reflections");
+      if (refDocSnap.exists()) {
+        const refData = refDocSnap.data();
+        if (refData && refData.reflections) defaultResult.reflections = refData.reflections;
+      }
+    }),
+
+    readSection("shelf_dismissals", async () => {
+      const dismDocSnap = await getDataDoc("shelf_dismissals");
+      if (dismDocSnap.exists()) {
+        const dismData = dismDocSnap.data();
+        if (dismData && dismData.dismissals) defaultResult.shelfDismissals = dismData.dismissals;
+      }
+    }),
+
+    readSection("entitlement", async () => {
+      const entitlementDocSnap = await getDataDoc("entitlement");
+      if (entitlementDocSnap.exists()) {
+        const entData = entitlementDocSnap.data();
+        if (entData) defaultResult.entitlement = entData as UserEntitlement;
+      }
+    }),
+
+    // { bookmarks: { [bookId]: BookmarkItem[] } }
+    readSection("bookmarks", async () => {
+      const bookmarksDocSnap = await getDataDoc("bookmarks");
+      if (bookmarksDocSnap.exists()) {
+        const bmData = bookmarksDocSnap.data();
+        if (bmData && bmData.bookmarks && typeof bmData.bookmarks === "object") defaultResult.bookmarks = bmData.bookmarks;
+      }
+    }),
+
+    readSection("completed_books", async () => {
+      const completedDocSnap = await getDataDoc("completed_books");
+      if (completedDocSnap.exists()) {
+        const compData = completedDocSnap.data();
+        if (compData && Array.isArray(compData.completedIds)) defaultResult.completedBookIds = compData.completedIds;
+      }
+    }),
+  ]);
 
   return defaultResult;
 }
@@ -421,6 +497,10 @@ export async function reconcileAndSyncAllUserData(user: User): Promise<CloudFull
 
     // 2. Fetch Authoritative Cloud Data for this UID
     const cloudData = await fetchFullCloudUserData(user.uid);
+    // A section whose cloud read failed is never written this session: its "empty" value is unknown, not empty,
+    // so uploading this device's copy could replace newer data from another device. Local copies are always kept.
+    const failed = new Set(cloudData.failedSections || []);
+    const canWrite = (section: CloudSection) => !failed.has(section);
 
     // Safeguard reading activity and streak data:
     // Read local reading activity strictly for this user.uid
@@ -462,7 +542,7 @@ export async function reconcileAndSyncAllUserData(user: User): Promise<CloudFull
 
     cloudData.readingActivity = finalReadingActivity;
     saveReadingActivityData(finalReadingActivity, user.uid);
-    syncReadingActivityToCloud(user.uid, finalReadingActivity);
+    if (canWrite("activity")) syncReadingActivityToCloud(user.uid, finalReadingActivity);
 
     // 3. Two-way safe union merge for favorites
     const localFavs = getStoredFavorites(user.uid);
@@ -472,7 +552,7 @@ export async function reconcileAndSyncAllUserData(user: User): Promise<CloudFull
     saveStoredFavorites(mergedFavs, user.uid);
     const cloudFavsSet = new Set(cloudFavs);
     localFavs.forEach((favId) => {
-      if (!cloudFavsSet.has(favId)) {
+      if (canWrite("favorites") && !cloudFavsSet.has(favId)) {
         syncFavoriteToCloud(user.uid, favId, true);
       }
     });
@@ -489,11 +569,11 @@ export async function reconcileAndSyncAllUserData(user: User): Promise<CloudFull
       const existing = historyMap.get(localItem.bookId);
       if (!existing) {
         historyMap.set(localItem.bookId, localItem);
-        syncReadingProgressToCloud(user.uid, localItem.bookId, localItem.page, localItem.totalPages);
+        if (canWrite("reading_progress")) syncReadingProgressToCloud(user.uid, localItem.bookId, localItem.page, localItem.totalPages);
       } else {
         const merged = mergeProgressItems(existing, localItem);
         historyMap.set(localItem.bookId, merged);
-        if (merged.page > (existing.page || 0) || merged.totalPages !== existing.totalPages) {
+        if (canWrite("reading_progress") && (merged.page > (existing.page || 0) || merged.totalPages !== existing.totalPages)) {
           syncReadingProgressToCloud(user.uid, localItem.bookId, merged.page, merged.totalPages);
         }
       }
@@ -533,7 +613,7 @@ export async function reconcileAndSyncAllUserData(user: User): Promise<CloudFull
       }
     }
     cloudData.readingMemories = mergedMemories;
-    if (hasLocalMemoriesToUpload && Object.keys(mergedMemories).length > 0) {
+    if (canWrite("reading_memory") && hasLocalMemoriesToUpload && Object.keys(mergedMemories).length > 0) {
       syncAllReadingMemoriesToCloud(user.uid, mergedMemories);
     }
 
@@ -555,60 +635,43 @@ export async function reconcileAndSyncAllUserData(user: User): Promise<CloudFull
           progress: 100,
           lastReadAt: existing?.lastReadAt || Date.now(),
         });
-        syncReadingProgressToCloud(user.uid, bId, total, total);
+        if (canWrite("reading_progress")) syncReadingProgressToCloud(user.uid, bId, total, total);
       }
     });
     cloudData.readingHistory = Array.from(historyMap.values()).sort((a, b) => (b.lastReadAt || 0) - (a.lastReadAt || 0));
     saveStoredReadingHistory(cloudData.readingHistory, user.uid);
 
-    if (mergedCompletedIds.length > cloudCompletedIds.length) {
+    if (canWrite("completed_books") && mergedCompletedIds.length > cloudCompletedIds.length) {
       syncCompletedBooksToCloud(user.uid, mergedCompletedIds);
     }
 
     // 7. Two-way safe union merge for collections & reflections
-    const localCollections = getReadingCollections(user.uid);
-    const cloudCollections = Array.isArray(cloudData.collections) ? cloudData.collections : [];
-    const colMap = new Map<string, ReadingCollection>();
-    cloudCollections.forEach((c) => {
-      if (c?.id) colMap.set(c.id, { ...c });
-    });
-    localCollections.forEach((c) => {
-      if (!c?.id) return;
-      if (!colMap.has(c.id)) {
-        colMap.set(c.id, { ...c });
-      } else {
-        const existing = colMap.get(c.id)!;
-        existing.bookIds = Array.from(new Set([...(existing.bookIds || []), ...(c.bookIds || [])]));
-      }
-    });
-    cloudData.collections = Array.from(colMap.values());
-    if (localCollections.length > cloudCollections.length) {
+    // Uploaded whenever this device holds something the cloud lacks (previously only when the local list was longer)
+    const collectionsMerge = mergeCollectionLists(cloudData.collections, getReadingCollections(user.uid));
+    cloudData.collections = collectionsMerge.merged;
+    if (canWrite("collections") && collectionsMerge.cloudNeedsUpdate) {
       syncCollectionsToCloud(user.uid, cloudData.collections);
     }
 
-    const localReflections = getBookReflections(user.uid);
-    cloudData.reflections = { ...localReflections, ...(cloudData.reflections || {}) };
+    // Reflections and shelf dismissals made while offline were previously never backfilled to the cloud
+    const reflectionsMerge = mergeReflectionMaps(cloudData.reflections, getBookReflections(user.uid));
+    cloudData.reflections = reflectionsMerge.merged;
+    if (canWrite("reflections") && reflectionsMerge.cloudNeedsUpdate) {
+      syncReflectionsToCloud(user.uid, cloudData.reflections);
+    }
 
-    const localDismissals = getShelfDismissals(user.uid);
-    const cloudDismissals = cloudData.shelfDismissals || {};
-    const mergedDismissals: ShelfDismissalsMap = { ...cloudDismissals };
-    Object.entries(localDismissals).forEach(([sec, bMap]) => {
-      mergedDismissals[sec] = { ...(mergedDismissals[sec] || {}), ...bMap };
-    });
-    cloudData.shelfDismissals = mergedDismissals;
+    const dismissalsMerge = mergeShelfDismissalMaps(cloudData.shelfDismissals, getShelfDismissals(user.uid));
+    cloudData.shelfDismissals = dismissalsMerge.merged;
+    if (canWrite("shelf_dismissals") && dismissalsMerge.cloudNeedsUpdate) {
+      syncShelfDismissalsToCloud(user.uid, cloudData.shelfDismissals);
+    }
 
-    // 8. Two-way merge for active website time
-    const localActive = getWebsiteActiveTimeData(user.uid);
-    const cloudActive = cloudData.activeTime || { totalActiveSeconds: 0, daily: {}, lastUpdated: Date.now() };
-    const mergedDailyActive: Record<string, number> = { ...(cloudActive.daily || {}) };
-    Object.entries(localActive.daily || {}).forEach(([k, secs]) => {
-      mergedDailyActive[k] = Math.max(mergedDailyActive[k] || 0, secs || 0);
-    });
-    cloudData.activeTime = {
-      totalActiveSeconds: Math.max(localActive.totalActiveSeconds || 0, cloudActive.totalActiveSeconds || 0),
-      daily: mergedDailyActive,
-      lastUpdated: Math.max(localActive.lastUpdated || 0, cloudActive.lastUpdated || 0),
-    };
+    // 8. Two-way merge for active website time (per-day maxima, so it can never double count)
+    const activeMerge = mergeActiveTime(cloudData.activeTime, getWebsiteActiveTimeData(user.uid));
+    cloudData.activeTime = activeMerge.merged;
+    if (canWrite("active_time") && activeMerge.cloudNeedsUpdate) {
+      syncActiveTimeToCloud(user.uid, cloudData.activeTime);
+    }
 
     // 8b. Two-way merge for bookmarks: upload anything local that the cloud is missing
     const localBookmarks = getAllBookmarks(user.uid);
@@ -618,7 +681,7 @@ export async function reconcileAndSyncAllUserData(user: User): Promise<CloudFull
       const cloudList = Array.isArray(cloudBookmarks[bookId]) ? cloudBookmarks[bookId] : [];
       const merged = mergeBookmarkLists(cloudList, localBookmarks[bookId] || []);
       mergedBookmarks[bookId] = merged;
-      if (merged.length > cloudList.length) {
+      if (canWrite("bookmarks") && merged.length > cloudList.length) {
         syncBookmarksToCloud(user.uid, bookId, merged);
       }
     });
@@ -628,7 +691,7 @@ export async function reconcileAndSyncAllUserData(user: User): Promise<CloudFull
     const localAnnotations = getAllBookAnnotations(user.uid);
     Object.entries(localAnnotations).forEach(([bookId, localAnn]) => {
       const cloudAnn = cloudData.annotations?.[bookId];
-      if (annotationsAddContent(cloudAnn, localAnn)) {
+      if (canWrite("annotations") && annotationsAddContent(cloudAnn, localAnn)) {
         const { bookmarks: _bm, ...merged } = mergeAnnotations(cloudAnn, localAnn);
         syncAnnotationsToCloud(user.uid, bookId, merged as BookAnnotations);
       }
@@ -676,8 +739,7 @@ export function syncReadingProgressToCloud(
     clearTimeout(progressDebounceTimers[key]);
   }
 
-  progressDebounceTimers[key] = setTimeout(async () => {
-    delete progressDebounceTimers[key];
+  scheduleWrite(progressDebounceTimers, key, 2000, async () => {
     try {
       const activeDb = getFirebaseDb() || db;
       if (!activeDb) return;
@@ -696,7 +758,7 @@ export function syncReadingProgressToCloud(
     } catch (err) {
       console.warn(`[Firestore] Failed to sync progress for ${bookId}:`, err);
     }
-  }, 2000); // 2-second debounce
+  }); // 2-second debounce
 }
 
 /**
@@ -766,8 +828,7 @@ export function syncAnnotationsToCloud(
     clearTimeout(annotationsDebounceTimers[key]);
   }
 
-  annotationsDebounceTimers[key] = setTimeout(async () => {
-    delete annotationsDebounceTimers[key];
+  scheduleWrite(annotationsDebounceTimers, key, 2000, async () => {
     try {
       const activeDb = getFirebaseDb() || db;
       if (!activeDb) return;
@@ -784,7 +845,7 @@ export function syncAnnotationsToCloud(
     } catch (err) {
       console.warn(`[Firestore] Failed to sync annotations for ${bookId}:`, err);
     }
-  }, 2000);
+  });
 }
 
 /**
@@ -803,8 +864,7 @@ export function syncBookmarksToCloud(
     clearTimeout(bookmarksDebounceTimers[key]);
   }
 
-  bookmarksDebounceTimers[key] = setTimeout(async () => {
-    delete bookmarksDebounceTimers[key];
+  scheduleWrite(bookmarksDebounceTimers, key, 2000, async () => {
     try {
       const activeDb = getFirebaseDb() || db;
       if (!activeDb) return;
@@ -821,7 +881,7 @@ export function syncBookmarksToCloud(
     } catch (err) {
       console.warn(`[Firestore] Failed to sync bookmarks for ${bookId}:`, err);
     }
-  }, 2000);
+  });
 }
 
 /**
@@ -839,8 +899,7 @@ export function syncReadingActivityToCloud(
     clearTimeout(activityDebounceTimers[key]);
   }
 
-  activityDebounceTimers[key] = setTimeout(async () => {
-    delete activityDebounceTimers[key];
+  scheduleWrite(activityDebounceTimers, key, 3000, async () => {
     try {
       const activeDb = getFirebaseDb() || db;
       if (!activeDb) return;
@@ -866,7 +925,7 @@ export function syncReadingActivityToCloud(
     } catch (err) {
       console.warn("[Firestore] Failed to sync reading activity:", err);
     }
-  }, 3000); // 3-second debounce
+  }); // 3-second debounce
 }
 
 /**
@@ -884,8 +943,7 @@ export function syncActiveTimeToCloud(
     clearTimeout(activeTimeDebounceTimers[key]);
   }
 
-  activeTimeDebounceTimers[key] = setTimeout(async () => {
-    delete activeTimeDebounceTimers[key];
+  scheduleWrite(activeTimeDebounceTimers, key, 4000, async () => {
     try {
       const activeDb = getFirebaseDb() || db;
       if (!activeDb) return;
@@ -894,7 +952,7 @@ export function syncActiveTimeToCloud(
     } catch (err) {
       console.warn("[Firestore] Failed to sync active time:", err);
     }
-  }, 4000); // 4-second debounce
+  }); // 4-second debounce
 }
 
 /**
@@ -913,8 +971,7 @@ export function syncReadingMemoryToCloud(
     clearTimeout(memoryDebounceTimers[key]);
   }
 
-  memoryDebounceTimers[key] = setTimeout(async () => {
-    delete memoryDebounceTimers[key];
+  scheduleWrite(memoryDebounceTimers, key, 3000, async () => {
     try {
       const activeDb = getFirebaseDb() || db;
       if (!activeDb) return;
@@ -931,7 +988,7 @@ export function syncReadingMemoryToCloud(
     } catch (err) {
       console.warn(`[Firestore] Failed to sync memory for ${bookId}:`, err);
     }
-  }, 3000); // 3-second debounce
+  }); // 3-second debounce
 }
 
 /**
@@ -979,8 +1036,7 @@ export function syncCollectionsToCloud(
     clearTimeout(collectionsDebounceTimers[key]);
   }
 
-  collectionsDebounceTimers[key] = setTimeout(async () => {
-    delete collectionsDebounceTimers[key];
+  scheduleWrite(collectionsDebounceTimers, key, 1000, async () => {
     try {
       const activeDb = getFirebaseDb() || db;
       if (!activeDb) return;
@@ -989,7 +1045,7 @@ export function syncCollectionsToCloud(
     } catch (err) {
       console.warn("[Firestore] Failed to sync collections to cloud:", err);
     }
-  }, 1000);
+  });
 }
 
 /**
@@ -1007,8 +1063,7 @@ export function syncReflectionsToCloud(
     clearTimeout(reflectionsDebounceTimers[key]);
   }
 
-  reflectionsDebounceTimers[key] = setTimeout(async () => {
-    delete reflectionsDebounceTimers[key];
+  scheduleWrite(reflectionsDebounceTimers, key, 1000, async () => {
     try {
       const activeDb = getFirebaseDb() || db;
       if (!activeDb) return;
@@ -1017,7 +1072,7 @@ export function syncReflectionsToCloud(
     } catch (err) {
       console.warn("[Firestore] Failed to sync reflections to cloud:", err);
     }
-  }, 1000);
+  });
 }
 
 /**
@@ -1035,8 +1090,7 @@ export function syncShelfDismissalsToCloud(
     clearTimeout(dismissalsDebounceTimers[key]);
   }
 
-  dismissalsDebounceTimers[key] = setTimeout(async () => {
-    delete dismissalsDebounceTimers[key];
+  scheduleWrite(dismissalsDebounceTimers, key, 1000, async () => {
     try {
       const activeDb = getFirebaseDb() || db;
       if (!activeDb) return;
@@ -1045,7 +1099,7 @@ export function syncShelfDismissalsToCloud(
     } catch (err) {
       console.warn("[Firestore] Failed to sync shelf dismissals to cloud:", err);
     }
-  }, 1000);
+  });
 }
 
 /**
@@ -1294,5 +1348,126 @@ export async function fetchCertificatesFromCloud(
   return {};
 }
 
+/**
+ * Uploads certificates that exist only on this device (e.g. issued while offline) and returns the cloud copy.
+ * A certificate already in the cloud is never replaced, so its ID and verification link stay stable.
+ * Returns null when the cloud cannot be read; nothing is written in that case.
+ */
+export async function backfillCertificatesToCloud(
+  uid: string,
+  localCertificates: Record<string, { bookId?: string }>
+): Promise<Record<string, any> | null> {
+  const currentDb = getFirebaseDb() || db;
+  if (!currentDb || !uid) return null;
+  const docRef = doc(currentDb, "users", uid, "data", "certificates");
+  let cloud: Record<string, any>;
+  try {
+    const snap = await getDoc(docRef);
+    cloud = snap.exists() ? snap.data() || {} : {};
+  } catch (err) {
+    console.warn("[Firestore] Could not read certificates; local certificates kept and not uploaded:", err);
+    return null;
+  }
+  const missing: Record<string, unknown> = {};
+  for (const [bookId, cert] of Object.entries(localCertificates || {})) {
+    if (cert?.bookId && !cloud[bookId]) missing[bookId] = cert;
+  }
+  if (Object.keys(missing).length > 0) {
+    try {
+      await setDoc(docRef, missing, { merge: true });
+      Object.assign(cloud, missing);
+    } catch (err) {
+      console.warn("[Firestore] Could not upload local certificates (kept on this device):", err);
+    }
+  }
+  return cloud;
+}
 
+export interface CloudVerification {
+  uid: string;
+  verifiedAt: number;
+  /** True when every record on this device was found in the cloud. */
+  complete: boolean;
+  /** Records still only on this device, e.g. "highlight:1984:h_123". They stay local and are retried on the next sync. */
+  missing: string[];
+  /** Sections that could not be read back, so they are unverified. */
+  unreadable: string[];
+}
 
+const VERIFICATION_KEY = (uid: string) => `readershub:cloud-verification:v1:${uid}`;
+
+export function getLastCloudVerification(uid: string): CloudVerification | null {
+  if (typeof window === "undefined" || !uid) return null;
+  try {
+    const raw = localStorage.getItem(VERIFICATION_KEY(uid));
+    return raw ? (JSON.parse(raw) as CloudVerification) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Verifies the backfill: flushes pending writes, reads the account back from Firestore and checks that every
+ * important record held on this device is present there. Never deletes or changes local data; the result is
+ * kept on this device so an incomplete copy is retried. Returns null if verification could not run.
+ */
+export async function verifyCloudCopy(
+  uid: string,
+  localCertificates: Record<string, unknown> = {}
+): Promise<CloudVerification | null> {
+  const currentDb = getFirebaseDb() || db;
+  if (!currentDb || !uid || typeof window === "undefined") return null;
+
+  await flushAllPendingSyncs();
+  const cloud = await fetchFullCloudUserData(uid);
+  const unreadable: string[] = [...(cloud.failedSections || [])];
+  let cloudCertificates: Record<string, unknown> | undefined;
+  try {
+    const snap = await getDoc(doc(currentDb, "users", uid, "data", "certificates"));
+    cloudCertificates = snap.exists() ? snap.data() || {} : {};
+  } catch {
+    unreadable.push("certificates");
+  }
+  if (CLOUD_SECTIONS.every((sec) => unreadable.includes(sec))) return null; // offline: nothing to compare against
+
+  const readable = (s: string) => !unreadable.includes(s);
+  const localHistory = getStoredReadingHistory(uid);
+  const localMemories = getAllReadingMemories(uid);
+  const missing = findItemsMissingFromCloud(
+    {
+      favorites: readable("favorites") ? getStoredFavorites(uid) : [],
+      readingHistory: readable("reading_progress") ? localHistory : [],
+      completedBookIds: readable("completed_books") ? getGenuinelyCompletedBookIds(localHistory, localMemories, uid) : [],
+      collections: readable("collections") ? getReadingCollections(uid) : [],
+      reflections: readable("reflections") ? getBookReflections(uid) : {},
+      bookmarks: readable("bookmarks") ? getAllBookmarks(uid) : {},
+      annotations: readable("annotations") ? getAllBookAnnotations(uid) : {},
+      readingMemories: readable("reading_memory") ? localMemories : {},
+      certificates: readable("certificates") ? localCertificates : {},
+    },
+    {
+      favorites: cloud.favorites,
+      readingHistory: cloud.readingHistory,
+      completedBookIds: cloud.completedBookIds,
+      collections: cloud.collections,
+      reflections: cloud.reflections,
+      bookmarks: cloud.bookmarks,
+      annotations: cloud.annotations,
+      readingMemories: cloud.readingMemories,
+      certificates: cloudCertificates,
+    }
+  );
+
+  const result: CloudVerification = {
+    uid,
+    verifiedAt: Date.now(),
+    complete: missing.length === 0 && unreadable.length === 0,
+    missing: missing.slice(0, 200),
+    unreadable,
+  };
+  try {
+    localStorage.setItem(VERIFICATION_KEY(uid), JSON.stringify(result));
+  } catch {}
+  if (missing.length) console.warn(`[Firestore] ${missing.length} record(s) are still only on this device; they will be retried.`, missing.slice(0, 10));
+  return result;
+}

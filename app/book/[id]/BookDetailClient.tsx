@@ -9,7 +9,7 @@ import dynamic from "next/dynamic";
 import BookCard from "@/components/BookCard";
 import AddToCollectionModal from "@/components/collections/AddToCollectionModal";
 import BookReflectionModal from "@/components/reader/BookReflectionModal";
-import { getRelatedBooks } from "@/lib/recommendations";
+import { getRelatedBooksWithReasons } from "@/lib/recommendations";
 import { getBookAnnotations } from "@/lib/reader-storage";
 import type { AffiliateLinkInfo } from "@/lib/affiliate-config";
 import AdPlaceholder from "@/components/monetization/AdPlaceholder";
@@ -41,6 +41,8 @@ const BookReadingMemory = dynamic(() => import("@/components/memory/BookReadingM
 interface BookDetailClientProps {
   book: Book;
   relatedBooks: Book[];
+  /** Why each related book is shown ("Same author", "Shared topic: Stoicism"), keyed by book ID. */
+  relatedReasons?: Record<string, string>;
   // Resolved on the server so the content-rights audit data never ships in the client bundle
   affiliateInfo: AffiliateLinkInfo | null;
 }
@@ -48,6 +50,7 @@ interface BookDetailClientProps {
 export default function BookDetailClient({
   book,
   relatedBooks,
+  relatedReasons,
   affiliateInfo,
 }: BookDetailClientProps) {
   const {
@@ -105,10 +108,13 @@ export default function BookDetailClient({
   const progress = getReadingProgress(book.id);
   const annotations = useMemo(() => getBookAnnotations(book.id), [book.id]);
   const userReflection = getReflection(book.id);
-  const smartRelatedBooks = useMemo(() => {
-    if (relatedBooks && relatedBooks.length > 0) return relatedBooks;
-    return getRelatedBooks(book, BOOKS, 4);
-  }, [book, relatedBooks]);
+  const { smartRelatedBooks, relatedReasonById } = useMemo(() => {
+    if (relatedBooks && relatedBooks.length > 0) return { smartRelatedBooks: relatedBooks, relatedReasonById: relatedReasons || {} };
+    // "More by {author}" already lists the first four same-author books, so similar books add something new
+    const shownByAuthor = new Set(BOOKS.filter((b) => b.author === book.author && b.id !== book.id).slice(0, 4).map((b) => b.id));
+    const scored = getRelatedBooksWithReasons(book, BOOKS.filter((b) => !shownByAuthor.has(b.id)), 4);
+    return { smartRelatedBooks: scored.map((r) => r.book), relatedReasonById: Object.fromEntries(scored.map((r) => [r.book.id, r.reason])) as Record<string, string> };
+  }, [book, relatedBooks, relatedReasons]);
 
   useEffect(() => {
     recordReading(book.id);
@@ -531,7 +537,7 @@ export default function BookDetailClient({
         <section className="w-full min-w-0">
           <div className="flex items-center justify-between mb-4 sm:mb-6">
             <h3 className="text-lg sm:text-xl md:text-2xl font-bold font-serif text-[var(--foreground)]">
-              Readers Also Explored
+              Similar Books
             </h3>
             <Link
               href={`/library?category=${encodeURIComponent(book.category)}`}
@@ -542,7 +548,7 @@ export default function BookDetailClient({
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6 w-full min-w-0">
             {smartRelatedBooks.map((b) => (
-              <BookCard key={b.id} book={b} />
+              <BookCard key={b.id} book={b} reason={relatedReasonById[b.id]} />
             ))}
           </div>
         </section>

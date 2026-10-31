@@ -1,4 +1,6 @@
 import booksData from "@/data/books.json";
+import { searchCatalog } from "@/lib/search/catalog-search";
+import { isSameAuthor } from "@/lib/recommendations";
 
 export interface AssistantBook {
   id: string;
@@ -170,14 +172,14 @@ export function tryDeterministicQuery(query: string): AssistantResponse | null {
   }
 
   if (authorQuery && authorQuery.length >= 3) {
-    let normalizedSearch = authorQuery;
-    if (authorQuery.includes("dostoyevsky") || authorQuery.includes("dostoevsky")) {
-      normalizedSearch = "dosto";
-    }
-
-    const matchedAuthorBooks = ALL_BOOKS.filter((b) =>
-      b.author.toLowerCase().includes(normalizedSearch)
-    );
+    // Shared engine handles accents, partial names and spelling variants ("dostoyevsky", "premchnd")
+    const byId = new Map(ALL_BOOKS.map((b) => [b.id, b]));
+    const authorHits = searchCatalog(authorQuery).hits.filter((h) => h.complete && h.matchedField === "author");
+    const topAuthor = authorHits[0]?.book.author;
+    const matchedAuthorBooks = authorHits
+      .filter((h) => topAuthor && isSameAuthor(h.book.author, topAuthor))
+      .map((h) => byId.get(h.book.id))
+      .filter((b): b is AssistantBook => Boolean(b));
 
     if (matchedAuthorBooks.length > 0) {
       const authorName = matchedAuthorBooks[0].author;
