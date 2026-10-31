@@ -295,3 +295,17 @@ test("certificates: local-only ones are uploaded, existing cloud certificates ar
   assert.equal(writeCount, 0, "no blind writes when the cloud copy is unknown");
   assert.ok(typeof certs.getStoredCertificates === "function");
 });
+
+test("a cloud record saved with a 100-page default keeps the reader's page and gets the real denominator", async () => {
+  // Old data: 1984 (394 real pages) saved as page 100 of 100 and listed as completed
+  store.set("users/user-a/reading_progress/1984", { bookId: "1984", page: 100, totalPages: 100, progress: 100, lastReadAt: now });
+  store.set("users/user-a/data/completed_books", { completedIds: ["1984"] });
+  const result = await reconcileAndFlush(userA);
+
+  const local = result.readingHistory.find((h) => h.bookId === "1984")!;
+  assert.deepEqual([local.page, local.totalPages, local.progress], [100, 394, 25], "position kept, never jumped to the end");
+  const cloud = store.get("users/user-a/reading_progress/1984")!;
+  assert.equal(cloud.page, 100, "cloud page untouched");
+  assert.equal(cloud.totalPages, 394, "cloud denominator corrected");
+  assert.deepEqual(store.get("users/user-a/data/completed_books")!.completedIds, ["1984"], "existing completion records are not deleted");
+});

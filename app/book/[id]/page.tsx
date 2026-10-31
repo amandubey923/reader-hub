@@ -8,6 +8,15 @@ import { getRelatedBooksWithReasons } from "@/lib/recommendations";
 import BookDetailClient from "./BookDetailClient";
 import { getAffiliateInfoForBook } from "@/lib/affiliate-config";
 
+// Route params can arrive still URL-encoded (e.g. an ID with spaces: "The%20Conquest%20of%20Happiness")
+function bookIdFromParam(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 interface BookPageProps {
   params: Promise<{ id: string }>;
 }
@@ -22,7 +31,7 @@ export async function generateMetadata({
   params,
 }: BookPageProps): Promise<Metadata> {
   const resolvedParams = await params;
-  const book = getBookById(resolvedParams.id);
+  const book = getBookById(bookIdFromParam(resolvedParams.id));
   if (!book) {
     return {
       title: "Book Not Found | Reader's HUB",
@@ -47,7 +56,7 @@ export async function generateMetadata({
 
 export default async function BookPage({ params }: BookPageProps) {
   const resolvedParams = await params;
-  const book = getBookById(resolvedParams.id);
+  const book = getBookById(bookIdFromParam(resolvedParams.id));
 
   if (!book) {
     notFound();

@@ -51,6 +51,7 @@ import {
   mergeAnnotations,
   mergeBookmarkLists,
   mergeProgressItems,
+  normalizeProgressItem,
   mergeCollectionLists,
   mergeReflectionMaps,
   mergeShelfDismissalMaps,
@@ -59,6 +60,7 @@ import {
 } from "./reading-merge";
 import { UserEntitlement, DEFAULT_FREE_ENTITLEMENT } from "./entitlements";
 import { BOOKS, getBookById } from "@/data/books";
+import { getVerifiedPageCount } from "./book-pages";
 
 export interface CloudFullUserData {
   favorites: string[];
@@ -75,6 +77,8 @@ export interface CloudFullUserData {
   bookmarks?: Record<string, BookmarkItem[]>;
   /** Sections whose cloud read failed. Their local copies are kept and nothing is written over them. */
   failedSections?: CloudSection[];
+  /** Progress records whose stored denominator differs from the PDF's verified page count. */
+  progressNeedingDenominatorRepair?: { bookId: string; totalPages: number; progress: number }[];
 }
 
 export const CLOUD_SECTIONS = [
@@ -314,17 +318,34 @@ export async function fetchFullCloudUserData(uid: string): Promise<CloudFullUser
       progSnap.forEach((d) => {
         const data = d.data();
         if (data && typeof data.page === "number") {
-          defaultResult.readingHistory.push({
+          // Read through the PDF's verified page count; an unknown total stays unknown (never a 100-page default)
+          const normalized = normalizeProgressItem({
             bookId: d.id,
             page: data.page,
-            totalPages: data.totalPages || 100,
-            progress: data.progress || Math.round((data.page / (data.totalPages || 100)) * 100),
-            lastReadAt: data.lastReadAt?.toMillis
-              ? data.lastReadAt.toMillis()
-              : typeof data.lastReadAt === "number"
-              ? data.lastReadAt
-              : Date.now(),
+            totalPages: Number(data.totalPages) || 0,
+            progress: Number(data.progress) || 0,
+            lastReadAt: 0,
           });
+          if (!normalized.inconsistent && normalized.item.totalPages > 0 && Number(data.totalPages) !== normalized.item.totalPages) {
+            (defaultResult.progressNeedingDenominatorRepair ||= []).push({
+              bookId: d.id,
+              totalPages: normalized.item.totalPages,
+              progress: normalized.item.progress,
+            });
+          }
+          defaultResult.readingHistory.push(
+            normalizeProgressItem({
+              bookId: d.id,
+              page: data.page,
+              totalPages: Number(data.totalPages) || 0,
+              progress: Number(data.progress) || 0,
+              lastReadAt: data.lastReadAt?.toMillis
+                ? data.lastReadAt.toMillis()
+                : typeof data.lastReadAt === "number"
+                ? data.lastReadAt
+                : Date.now(),
+            }).item
+          );
         }
       });
     }),
@@ -581,6 +602,10 @@ export async function reconcileAndSyncAllUserData(user: User): Promise<CloudFull
     cloudData.readingHistory = Array.from(historyMap.values()).sort((a, b) => (b.lastReadAt || 0) - (a.lastReadAt || 0));
     saveStoredReadingHistory(cloudData.readingHistory, user.uid);
 
+    if (canWrite("reading_progress") && cloudData.progressNeedingDenominatorRepair?.length) {
+      repairProgressDenominators(user.uid, cloudData.progressNeedingDenominatorRepair);
+    }
+
     // 5. Two-way safe union merge for reading memories
     const localMemories = getAllReadingMemories(user.uid);
     const cloudMemories = cloudData.readingMemories || {};
@@ -626,14 +651,17 @@ export async function reconcileAndSyncAllUserData(user: User): Promise<CloudFull
     mergedCompletedIds.forEach((bId) => {
       const existing = historyMap.get(bId);
       const catalogBook = getBookById(bId) || BOOKS.find((b) => b.id === bId || b.id.toLowerCase() === bId.toLowerCase());
-      const total = Number(catalogBook?.pages) || existing?.totalPages || 100;
-      if (!existing || existing.progress < 100) {
+      const total = getVerifiedPageCount(bId) ?? (Number(catalogBook?.pages) || 0);
+      // Only a book with no saved position gets an end-of-book record. An existing reading position is never
+      // moved: old completion records may come from a wrong page-count denominator, and the reader's real
+      // page must survive (completion itself stays recorded in completedIds).
+      if (!existing && total > 0) {
         historyMap.set(bId, {
           bookId: bId,
           page: total,
           totalPages: total,
           progress: 100,
-          lastReadAt: existing?.lastReadAt || Date.now(),
+          lastReadAt: Date.now(),
         });
         if (canWrite("reading_progress")) syncReadingProgressToCloud(user.uid, bId, total, total);
       }
@@ -719,6 +747,28 @@ export async function reconcileAndSyncAllUserData(user: User): Promise<CloudFull
       completedBookIds: getGenuinelyCompletedBookIds(fallbackHistory, fallbackMemories, user.uid),
       entitlement: DEFAULT_FREE_ENTITLEMENT,
     };
+  }
+}
+
+/**
+ * Rewrites only the denominator (and the percentage derived from it) of saved progress records whose
+ * totalPages differs from the PDF's verified page count. The reader's page and last-read time are left
+ * untouched, so reading positions and "continue reading" order never change.
+ */
+export async function repairProgressDenominators(
+  uid: string,
+  repairs: { bookId: string; totalPages: number; progress: number }[]
+): Promise<void> {
+  const currentDb = getFirebaseDb() || db;
+  if (!currentDb || !uid || !repairs.length) return;
+  try {
+    const byRef = new Map(repairs.map((r) => [doc(currentDb, "users", uid, "reading_progress", r.bookId), r] as const));
+    await commitInChunks(currentDb, Array.from(byRef.keys()), (batch, ref) => {
+      const r = byRef.get(ref)!;
+      batch.set(ref, { totalPages: r.totalPages, progress: r.progress }, { merge: true });
+    });
+  } catch (err) {
+    console.warn("[Firestore] Could not repair page-count denominators (will retry next sync):", err);
   }
 }
 

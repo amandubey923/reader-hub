@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-10-29T12:43:17.923Z",
-  "source": "Measured from public/pdfs with pdf-lib (scripts/compute-pdf-page-counts.ts)",
+  "generatedAt": "2026-10-31T11:41:29.480Z",
+  "source": "PDF.js numPages of public/pdfs, cross-checked with pdf-lib (scripts/audit-catalogue.ts)",
   "counts": {
     "1984": 394,
     "the-great-gatsby": 66,

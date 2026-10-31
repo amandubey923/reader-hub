@@ -5,6 +5,7 @@ import {
   tryDeterministicQuery,
   getCompactCatalogSummary,
   findBooksByIds,
+  simplifyAssistantResponse,
   AssistantResponse,
 } from "@/lib/library-assistant";
 
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest) {
     // -------------------------------------------------------------
     const deterministicResult = tryDeterministicQuery(userMessage);
     if (deterministicResult) {
-      return NextResponse.json(deterministicResult);
+      return NextResponse.json(simplifyAssistantResponse(deterministicResult));
     }
 
     // -------------------------------------------------------------
@@ -60,7 +61,9 @@ export async function POST(req: NextRequest) {
     const catalogSummary = getCompactCatalogSummary();
 
     const systemInstruction = `
-You are the "Reader's HUB Assistant", a polite, concise, and focused library guide for the Reader's HUB digital book platform.
+You are the "Reader's HUB Assistant", a simple, polite library helper for the Reader's HUB digital book platform.
+You only do basic things: find books in the catalog, give basic book information, and make short suggestions.
+Keep every answer brief: at most 2 short sentences. (Deeper reading help is handled by Bodhi, the reading companion.)
 
 CRITICAL RULES (ABSOLUTE):
 1. The catalog provided below is the ONLY source of truth for book availability in Reader's HUB.
@@ -70,9 +73,8 @@ CRITICAL RULES (ABSOLUTE):
    "I'm here specifically to help you explore the Reader's HUB library. Try asking me about a book, author, category, or availability."
 5. Format your response strictly as a valid JSON object with the following structure:
 {
-  "reply": "Clear, concise, markdown-formatted conversational answer (1-3 sentences).",
-  "bookIds": ["exact-id-from-catalog", "exact-id-2"],
-  "suggestedActions": ["Short action 1", "Short action 2"]
+  "reply": "A short, plain answer (at most 2 sentences).",
+  "bookIds": ["up to 3 exact ids from the catalog"]
 }
 
 READER'S HUB LIBRARY CATALOG:
@@ -125,17 +127,12 @@ ${catalogSummary}
         const finalResponse: AssistantResponse = {
           reply: parsed.reply || "Here is what I found in the Reader's HUB library:",
           books: matchingBooks,
-          suggestedActions: parsed.suggestedActions || ["Browse categories", "What's available?"],
         };
 
-        return NextResponse.json(finalResponse);
+        return NextResponse.json(simplifyAssistantResponse(finalResponse));
       } catch {
         // Fallback for non-json text response
-        return NextResponse.json({
-          reply: rawOutput.replace(/```json|```/g, "").trim(),
-          books: [],
-          suggestedActions: ["Browse categories", "What's available?"],
-        });
+        return NextResponse.json(simplifyAssistantResponse({ reply: rawOutput.replace(/```json|```/g, "").trim(), books: [] }));
       }
     }
 

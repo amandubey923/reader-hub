@@ -127,8 +127,8 @@ export default function CompanionRoot() {
       {open ? (
         <div
           className={`fixed z-[58] flex flex-col overflow-hidden border border-[var(--border)] bg-[var(--background)] shadow-[0_30px_80px_-24px_rgba(20,27,45,0.55)]
-            inset-x-2 bottom-2 h-[86dvh] rounded-2xl
-            sm:inset-x-auto sm:left-5 sm:w-[min(480px,calc(100vw-2.5rem))] sm:rounded-3xl lg:w-[520px] ${compact ? "sm:top-4 sm:bottom-4 sm:h-auto" : "sm:bottom-5 sm:h-[min(820px,calc(100dvh-6rem))]"}`}
+            inset-x-2 top-2 bottom-2 rounded-2xl
+            sm:inset-x-auto sm:left-5 sm:w-[min(600px,calc(100vw-2.5rem))] sm:rounded-3xl lg:w-[640px] ${compact ? "sm:top-4 sm:bottom-4" : "sm:top-[4.75rem] sm:bottom-4"}`}
         >
           <CompanionPanel
             snapshot={snapshot}
@@ -176,11 +176,11 @@ export default function CompanionRoot() {
         >
           <span className="relative flex flex-col items-start">
             <span className="block sm:hidden">
-              <BodhiRobot mood={mood} size={compact ? 64 : 100} />
+              <BodhiRobot mood={mood} size={compact ? 64 : 118} />
             </span>
             <span className="hidden sm:block">
               {/* Fills the empty margin beside the content on wide screens without reaching into it */}
-              <BodhiRobot mood={mood} size={compact ? 92 : "clamp(132px, calc(((100vw - 1280px) / 2 + 8px) / 0.66), 280px)"} />
+              <BodhiRobot mood={mood} size={compact ? 92 : "clamp(156px, calc(((100vw - 1280px) / 2 + 8px) / 0.56), 330px)"} />
             </span>
             {!compact && (
               <span className="mt-1 rounded-full border border-[var(--border)] bg-[var(--card)]/95 px-2.5 py-1 text-left leading-tight shadow-md backdrop-blur">

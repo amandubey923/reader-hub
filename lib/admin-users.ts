@@ -1,4 +1,5 @@
 import { getFirebaseDb, db } from "@/lib/firebase";
+import { normalizeProgressItem } from "@/lib/reading-merge";
 import { User } from "firebase/auth";
 import {
   collection,
@@ -329,11 +330,13 @@ export async function fetchUserDeepInspection(
     }> = [];
     (progSnap as any).docs?.forEach((d: any) => {
       const p = d.data();
+      // Shown against the PDF's verified page count (old records may carry a 100-page default)
+      const n = normalizeProgressItem({ bookId: d.id, page: p.page || 1, totalPages: Number(p.totalPages) || 0, progress: Number(p.progress) || 0, lastReadAt: 0 }).item;
       progressList.push({
         bookId: d.id,
-        page: p.page || 1,
-        totalPages: p.totalPages || 100,
-        progress: p.progress || 0,
+        page: n.page,
+        totalPages: n.totalPages,
+        progress: n.progress,
         lastReadAt: p.lastReadAt,
       });
     });

@@ -91,9 +91,9 @@ test("search is fast enough for keystroke-by-keystroke use", () => {
 
 // ---------------------------------------------------------------- Page counts
 
-test("discovery uses measured PDF page counts, not inaccurate catalogue values", () => {
+test("discovery uses the PDFs' verified page counts (catalogue corrected to match)", () => {
   const plato = getBookById("complete-dialogues-of-plato")!;
-  assert.equal(Number(plato.pages), 120, "catalogue value is unchanged");
+  assert.equal(Number(plato.pages), 2449, "catalogue corrected from 120 to the PDF's real count");
   assert.equal(getPageCount(plato), 2449);
   assert.equal(getLengthBucket(plato), "epic");
   assert.equal(getPageCount(getBookById("1984")!), 394);
@@ -251,4 +251,20 @@ test("Bodhi's catalog tool and the Library Assistant use the shared engine", asy
   assert.ok(dosto && dosto.books.length > 0 && dosto.books.every((b) => b.author === "Fyodor Dostoevsky"));
   const premchand = tryDeterministicQuery("books by premchnd");
   assert.ok(premchand && premchand.books.every((b) => /Premchand/.test(b.author)));
+});
+
+test("Library Assistant stays simple: short replies, at most 3 books, no follow-up action chains", async () => {
+  const { simplifyAssistantResponse, tryDeterministicQuery } = await import("../lib/library-assistant");
+  const osho = tryDeterministicQuery("books by osho")!;
+  const simple = simplifyAssistantResponse(osho);
+  assert.ok(simple.books.length <= 3 && simple.books.length > 0);
+  assert.equal((simple as any).suggestedActions, undefined);
+  const long = simplifyAssistantResponse({
+    reply: "First sentence here. Second sentence here! Third sentence should go. Fourth too.",
+    books: [osho.books[0], osho.books[0], osho.books[1]],
+    suggestedActions: ["x"],
+  });
+  assert.equal(long.reply, "First sentence here. Second sentence here!");
+  assert.equal(long.books.length, 2, "duplicates removed");
+  assert.ok(simplifyAssistantResponse({ reply: "word ".repeat(200), books: [] }).reply.length <= 262);
 });

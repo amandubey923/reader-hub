@@ -458,7 +458,7 @@
   --shell: #fbf6ea;
   --shell-shade: #dccdb0;
   /* --s is the figure height; everything else is proportional so one robot serves every size */
-  width: calc(var(--s) * 0.66);
+  width: calc(var(--s) * 0.56);
   height: var(--s);
   position: relative;
   perspective: calc(var(--s) * 4);
@@ -489,10 +489,10 @@
 /* Head */
 .bodhi-head {
   position: absolute;
-  top: calc(var(--s) * 0.07);
+  top: calc(var(--s) * 0.065);
   left: 50%;
-  width: calc(var(--s) * 0.33);
-  height: calc(var(--s) * 0.29);
+  width: calc(var(--s) * 0.3);
+  height: calc(var(--s) * 0.26);
   border-radius: 48% 48% 42% 42%;
   background: radial-gradient(110% 95% at 32% 22%, #ffffff 0%, var(--shell) 42%, var(--shell-shade) 100%);
   box-shadow:
@@ -611,10 +611,10 @@
   z-index: 2;
 }
 .bodhi-ear-l {
-  left: calc(50% - var(--s) * 0.175);
+  left: calc(50% - var(--s) * 0.16);
 }
 .bodhi-ear-r {
-  left: calc(50% + var(--s) * 0.075);
+  left: calc(50% + var(--s) * 0.06);
 }
 .bodhi-antenna {
   position: absolute;
@@ -642,10 +642,10 @@
 /* Body: a tall rounded capsule with cylindrical shading, a neck ring and a gold belt */
 .bodhi-body {
   position: absolute;
-  top: calc(var(--s) * 0.345);
+  top: calc(var(--s) * 0.31);
   left: 50%;
-  width: calc(var(--s) * 0.27);
-  height: calc(var(--s) * 0.53);
+  width: calc(var(--s) * 0.25);
+  height: calc(var(--s) * 0.5);
   border-radius: calc(var(--s) * 0.1) calc(var(--s) * 0.1) calc(var(--s) * 0.12) calc(var(--s) * 0.12);
   transform: translateX(-50%);
   background: linear-gradient(90deg, var(--shell-shade) 0%, var(--shell) 30%, #ffffff 48%, var(--shell) 66%, var(--shell-shade) 100%);
@@ -677,6 +677,17 @@
   background: linear-gradient(180deg, #f6c56a, var(--gold-deep));
   opacity: 0.85;
 }
+.bodhi-core::after {
+  /* chest panel seam below the core */
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 125%;
+  width: 1.5px;
+  height: 260%;
+  transform: translateX(-50%);
+  background: linear-gradient(180deg, rgba(180, 140, 80, 0.45), rgba(180, 140, 80, 0));
+}
 .bodhi-core {
   position: absolute;
   top: 8%;
@@ -693,26 +704,26 @@
 .bodhi-leg {
   position: absolute;
   bottom: 0;
-  width: calc(var(--s) * 0.095);
-  height: calc(var(--s) * 0.065);
-  border-radius: 50% 50% 30% 30%;
-  background: linear-gradient(180deg, #2a3557, var(--navy));
-  box-shadow: inset 0 calc(var(--s) * 0.006) 0 rgba(232, 162, 58, 0.55);
+  width: calc(var(--s) * 0.085);
+  height: calc(var(--s) * 0.15);
+  border-radius: calc(var(--s) * 0.03) calc(var(--s) * 0.03) 40% 40%;
+  background: linear-gradient(180deg, var(--shell-shade) 0%, var(--shell) 30%, #ffffff 45%, var(--shell-shade) 58%, #2a3557 60%, var(--navy) 100%);
+  box-shadow: inset 0 calc(var(--s) * -0.004) 0 rgba(232, 162, 58, 0.55), 0 calc(var(--s) * 0.006) calc(var(--s) * 0.01) rgba(20, 27, 45, 0.25);
   z-index: 1;
 }
 .bodhi-leg-l {
-  left: calc(50% - var(--s) * 0.115);
+  left: calc(50% - var(--s) * 0.1);
 }
 .bodhi-leg-r {
-  left: calc(50% + var(--s) * 0.02);
+  left: calc(50% + var(--s) * 0.015);
 }
 
 /* Arms from the shoulders to the book's edges; the hand is part of the arm so a wave moves it too */
 .bodhi-arm {
   position: absolute;
-  top: calc(var(--s) * 0.39);
-  width: calc(var(--s) * 0.052);
-  height: calc(var(--s) * 0.19);
+  top: calc(var(--s) * 0.355);
+  width: calc(var(--s) * 0.048);
+  height: calc(var(--s) * 0.185);
   border-radius: 999px;
   background: linear-gradient(90deg, var(--shell-shade), #ffffff 45%, var(--shell));
   transform-origin: 50% calc(var(--s) * 0.02);
@@ -730,12 +741,24 @@
   background: radial-gradient(circle at 35% 30%, #ffffff, var(--shell) 55%, var(--shell-shade));
   box-shadow: 0 0 0 calc(var(--s) * 0.004) rgba(232, 162, 58, 0.5);
 }
+.bodhi-arm::before {
+  /* shoulder joint */
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: calc(var(--s) * -0.012);
+  width: calc(var(--s) * 0.06);
+  height: calc(var(--s) * 0.06);
+  border-radius: 50%;
+  transform: translateX(-50%);
+  background: radial-gradient(circle at 35% 30%, #fff3cf, var(--gold) 55%, var(--gold-deep));
+}
 .bodhi-arm-l {
-  left: calc(50% - var(--s) * 0.155);
+  left: calc(50% - var(--s) * 0.14);
   transform: rotate(52deg);
 }
 .bodhi-arm-r {
-  left: calc(50% + var(--s) * 0.103);
+  left: calc(50% + var(--s) * 0.092);
   transform: rotate(-52deg);
 }
 .bodhi[data-book="false"] .bodhi-arm-l {
@@ -748,11 +771,11 @@
 /* The open book held at chest height (seen from slightly above, pages in a gentle V) */
 .bodhi-book {
   position: absolute;
-  top: calc(var(--s) * 0.44);
+  top: calc(var(--s) * 0.405);
   left: 50%;
-  width: calc(var(--s) * 0.62);
-  height: calc(var(--s) * 0.22);
-  margin-left: calc(var(--s) * -0.31);
+  width: calc(var(--s) * 0.56);
+  height: calc(var(--s) * 0.2);
+  margin-left: calc(var(--s) * -0.28);
   transform: rotateX(46deg);
   transform-style: preserve-3d;
   z-index: 5;

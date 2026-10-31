@@ -4,11 +4,13 @@
  */
 
 import { BOOKS, getBookById } from "@/data/books";
+import { getVerifiedPageCount } from "./book-pages";
 import {
   isSafeBookId,
   mergeAnnotations,
   mergeBookmarkLists,
   mergeProgressItems,
+  normalizeProgressItem,
   mergeReadingMemory,
 } from "./reading-merge";
 
@@ -263,6 +265,11 @@ export function saveStoredFavorites(favs: string[], uid?: string | null): void {
   }
 }
 
+// Saved records are read through the verified page count of each PDF (old records may carry a wrong
+// denominator such as a 100-page default). Read-only: the corrected value is saved on the next progress write.
+const normalizeHistory = (list: unknown[]): ReadingProgressItem[] =>
+  list.filter((h): h is ReadingProgressItem => Boolean(h && typeof h === "object" && (h as ReadingProgressItem).bookId)).map((h) => normalizeProgressItem(h).item);
+
 export function getStoredReadingHistory(uid?: string | null): ReadingProgressItem[] {
   if (typeof window === "undefined") return [];
   try {
@@ -270,7 +277,7 @@ export function getStoredReadingHistory(uid?: string | null): ReadingProgressIte
     const raw = localStorage.getItem(key);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) return normalizeHistory(parsed);
     }
     // Signed-in readers never inherit guest data implicitly; migrateGuestDataToUser() handles that at login
     const targetUid = uid !== undefined ? (uid ? uid.trim() : null) : activeUserUid;
@@ -278,7 +285,7 @@ export function getStoredReadingHistory(uid?: string | null): ReadingProgressIte
     const legacy = localStorage.getItem("readershub:history:v1:guest");
     if (legacy) {
       const parsed = JSON.parse(legacy);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) return normalizeHistory(parsed);
     }
     return [];
   } catch {
@@ -1248,7 +1255,8 @@ export function getSavedProgress(bookId: string, uid?: string | null): ReadingPr
       raw = localStorage.getItem(`${PROGRESS_KEY_PREFIX}:${bookId}`);
     }
     if (raw) {
-      const parsed = JSON.parse(raw);
+      const stored = JSON.parse(raw);
+      const parsed = stored && stored.bookId ? (normalizeProgressItem(stored).item as ReadingProgressData) : stored;
       progressCache.set(cacheKey, parsed);
       return parsed;
     }
@@ -1638,18 +1646,18 @@ export function getGenuinelyCompletedBookIds(
   const allMemories: Record<string, BookReadingMemory> = { ...localMemories, ...(memories || {}) };
   const completedIds: string[] = [];
 
-  for (const item of historyList) {
-    if (!item?.bookId) continue;
-    const mem = allMemories[item.bookId] || (typeof window !== "undefined" ? getBookReadingMemory(item.bookId, targetUid) : undefined);
+  for (const raw of historyList) {
+    if (!raw?.bookId) continue;
+    const mem = allMemories[raw.bookId] || (typeof window !== "undefined" ? getBookReadingMemory(raw.bookId, targetUid) : undefined);
     const bookSecs = mem?.totalSeconds || 0;
 
-    // Resolve authoritative total pages from item or catalog metadata
-    const catalogBook = getBookById(item.bookId) || BOOKS.find((b) => b.id === item.bookId || b.id.toLowerCase() === item.bookId.toLowerCase());
-    const catalogPages = Number(catalogBook?.pages) || 0;
-    const actualTotalPages = Number(item.totalPages) > 0 ? Number(item.totalPages) : catalogPages;
+    // Judged against the verified PDF page count: a stale "100%" saved against a wrong denominator
+    // (such as page 100 of a 100-page default for a 394-page book) is not a finished book
+    const { item, inconsistent } = normalizeProgressItem(raw);
+    if (inconsistent) continue;
 
-    // A book is complete when the user reaches all actual pages, or reaches >= 100% progress, or >= 95% with genuine reading time
-    const isFinished = (actualTotalPages > 0 && item.page >= actualTotalPages) || item.progress >= 100 || (item.progress >= 95 && (bookSecs >= 180 || item.page > 1));
+    // Complete when the reader reaches the last real page, or >= 95% with genuine reading time
+    const isFinished = (item.totalPages > 0 && item.page >= item.totalPages) || (item.progress >= 95 && (bookSecs >= 180 || item.page > 1));
 
     if (isFinished && (bookSecs >= 180 || !mem || item.progress >= 95)) {
       completedIds.push(item.bookId);
@@ -1662,7 +1670,7 @@ export function getGenuinelyCompletedBookIds(
     const bookSecs = mem?.totalSeconds || 0;
     const saved = typeof window !== "undefined" ? getSavedProgress(bId, targetUid) : null;
     const catalogBook = getBookById(bId) || BOOKS.find((b) => b.id === bId || b.id.toLowerCase() === bId.toLowerCase());
-    const catalogPages = Number(catalogBook?.pages) || 0;
+    const catalogPages = getVerifiedPageCount(bId) ?? (Number(catalogBook?.pages) || 0);
     const curPage = saved?.page || 0;
     const curProg = saved?.progress || (catalogPages > 0 && curPage > 0 ? Math.round((curPage / catalogPages) * 100) : 0);
     if ((curProg >= 95 || (catalogPages > 0 && curPage >= catalogPages)) && (bookSecs >= 180 || !mem || curProg >= 95)) {
@@ -1891,7 +1899,7 @@ export function importUserData(
           const incoming: ReadingProgressItem = {
             bookId: item.bookId,
             page: item.page,
-            totalPages: Number(item.totalPages) || 100,
+            totalPages: Number(item.totalPages) || 0,
             progress: Number(item.progress) || 0,
             lastReadAt: Number(item.lastReadAt) || Date.now(),
           };
@@ -2271,13 +2279,8 @@ export function hydrateStorageFromCloudData(
         if (!ex) {
           histMap.set(item.bookId, item);
         } else {
-          histMap.set(item.bookId, {
-            bookId: item.bookId,
-            page: Math.max(ex.page || 1, item.page || 1),
-            totalPages: Math.max(ex.totalPages || 100, item.totalPages || 100),
-            progress: Math.max(ex.progress || 0, item.progress || 0),
-            lastReadAt: Math.max(ex.lastReadAt || 0, item.lastReadAt || 0),
-          });
+          // Furthest page wins; the denominator is the PDF's verified page count (never a 100-page default)
+          histMap.set(item.bookId, mergeProgressItems(ex, item));
         }
       });
 
@@ -2511,13 +2514,7 @@ export function migrateGuestDataToUser(uid: string): void {
         if (!ex) {
           histMap.set(gh.bookId, gh);
         } else {
-          histMap.set(gh.bookId, {
-            bookId: gh.bookId,
-            page: Math.max(ex.page || 1, gh.page || 1),
-            totalPages: Math.max(ex.totalPages || 100, gh.totalPages || 100),
-            progress: Math.max(ex.progress || 0, gh.progress || 0),
-            lastReadAt: Math.max(ex.lastReadAt || 0, gh.lastReadAt || 0),
-          });
+          histMap.set(gh.bookId, mergeProgressItems(ex, gh));
         }
       });
       saveStoredReadingHistory(Array.from(histMap.values()), targetUid);

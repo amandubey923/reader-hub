@@ -4,7 +4,6 @@ import React, { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { AssistantBook } from "@/lib/library-assistant";
-import { useLibrary } from "@/context/LibraryContext";
 import { useEntitlement } from "@/context/EntitlementContext";
 import { getAuthHeader } from "@/lib/firebase";
 
@@ -21,7 +20,7 @@ const INITIAL_MESSAGES: Message[] = [
   {
     id: "welcome",
     sender: "assistant",
-    text: "Hi! I'm the **Reader's HUB Assistant**.\n\nAsk me whether a book is available, find books by an author, browse categories, or explore what's in the library.",
+    text: "Hi! I'm the **Library Assistant**. Ask me to find a book, an author, or a category. For help while reading, ask Bodhi.",
     suggestedActions: ["Find a book", "Browse categories", "Books by author", "What's available?"],
     timestamp: "Just now",
   },
@@ -34,7 +33,6 @@ export default function LibraryAssistant() {
   const [isLoading, setIsLoading] = useState(false);
   const [hasUnread, setHasUnread] = useState(false);
 
-  const { isFavorite, toggleFavorite } = useLibrary();
   const { isPro, canUseAiAssistant, recordAiQuery, openProModal } = useEntitlement();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -104,7 +102,6 @@ export default function LibraryAssistant() {
             id: `limit-${Date.now()}`,
             sender: "assistant",
             text: limited?.reply || "Too many requests. Please wait a moment and try again.",
-            suggestedActions: limited?.suggestedActions || ["Browse categories"],
             timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           },
         ]);
@@ -120,8 +117,7 @@ export default function LibraryAssistant() {
         id: `assistant-${Date.now()}`,
         sender: "assistant",
         text: data.reply || "Here is what I found in the library.",
-        books: data.books || [],
-        suggestedActions: data.suggestedActions || [],
+        books: (data.books || []).slice(0, 3),
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
 
@@ -330,7 +326,6 @@ export default function LibraryAssistant() {
                       </div>
                       <div className="grid grid-cols-1 gap-2">
                         {msg.books.map((b) => {
-                          const favorited = isFavorite(b.id);
                           return (
                             <div
                               key={b.id}
@@ -370,17 +365,6 @@ export default function LibraryAssistant() {
                                 >
                                   Read ↗
                                 </Link>
-                                <button
-                                  onClick={() => toggleFavorite(b.id)}
-                                  className={`p-1 rounded-md text-[10px] border transition-colors cursor-pointer ${
-                                    favorited
-                                      ? "text-rose-400 border-rose-500/40 bg-rose-500/15"
-                                      : "text-[var(--text-secondary)] border-[var(--border)] hover:text-rose-400"
-                                  }`}
-                                  title={favorited ? "Remove from shelf" : "Save to shelf"}
-                                >
-                                  ♥
-                                </button>
                               </div>
                             </div>
                           );
@@ -390,7 +374,7 @@ export default function LibraryAssistant() {
                   )}
 
                   {/* Suggested Follow-up Action Chips */}
-                  {msg.suggestedActions && msg.suggestedActions.length > 0 && (
+                  {msg.id === "welcome" && msg.suggestedActions && msg.suggestedActions.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 pt-1">
                       {msg.suggestedActions.map((action, idx) => (
                         <button

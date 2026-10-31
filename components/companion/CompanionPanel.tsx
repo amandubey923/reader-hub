@@ -171,7 +171,7 @@ export default function CompanionPanel(props: CompanionPanelProps) {
       )}
 
       {/* Messages */}
-      <div ref={listRef} className="flex-1 space-y-3.5 overflow-y-auto overscroll-contain px-4 py-4" aria-live="polite">
+      <div ref={listRef} className="flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5" aria-live="polite">
         {chat.messages.length === 0 && (
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4 text-sm leading-relaxed text-[var(--foreground)]">
             <p className="font-semibold">Namaste! I&apos;m Bodhi 👋</p>
@@ -186,7 +186,7 @@ export default function CompanionPanel(props: CompanionPanelProps) {
         {chat.messages.map((m) =>
           m.role === "user" ? (
             <div key={m.id} className="flex justify-end">
-              <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-[#141b2d] px-4 py-2.5 text-sm leading-relaxed text-[#f7f4ec]">{m.text}</div>
+              <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-[#141b2d] px-4 py-2.5 text-[15px] leading-relaxed text-[#f7f4ec]">{m.text}</div>
             </div>
           ) : (
             <div key={m.id} className="max-w-[94%] space-y-2">

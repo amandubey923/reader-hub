@@ -220,3 +220,21 @@ export function tryDeterministicQuery(query: string): AssistantResponse | null {
 
   return null;
 }
+
+// The Library Assistant is a lightweight helper: short answers, a few books, no follow-up action chains.
+// (Bodhi is the full reading companion; this keeps the two clearly different.)
+export const ASSISTANT_MAX_BOOKS = 3;
+export const ASSISTANT_MAX_REPLY_CHARS = 260;
+
+/** Trims any reply (deterministic or AI) to at most two short sentences and three books. */
+export function simplifyAssistantResponse(response: AssistantResponse): AssistantResponse {
+  const text = (response.reply || "").replace(/\s+\n/g, "\n").trim();
+  const sentences = text.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g) || [text];
+  let reply = sentences.slice(0, 2).join("").trim();
+  if (reply.length > ASSISTANT_MAX_REPLY_CHARS) {
+    reply = reply.slice(0, ASSISTANT_MAX_REPLY_CHARS).replace(/\s+\S*$/, "") + "…";
+  }
+  const seen = new Set<string>();
+  const books = (response.books || []).filter((b) => b?.id && !seen.has(b.id) && seen.add(b.id)).slice(0, ASSISTANT_MAX_BOOKS);
+  return { reply, books, isDeterministic: response.isDeterministic };
+}

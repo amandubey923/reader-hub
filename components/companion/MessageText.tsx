@@ -71,5 +71,5 @@ export default function MessageText({ text, onCite }: { text: string; onCite: (p
   });
   flush("end");
 
-  return <div className="text-sm leading-relaxed">{blocks}</div>;
+  return <div className="text-[15px] leading-relaxed">{blocks}</div>;
 }

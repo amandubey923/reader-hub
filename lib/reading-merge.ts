@@ -13,8 +13,7 @@ import type {
   ShelfDismissalsMap,
   WebsiteActiveTimeData,
 } from "./reader-storage";
-
-export const DEFAULT_TOTAL_PAGES = 100;
+import { getVerifiedPageCount, progressPercent } from "./book-pages";
 
 export interface ReadingProgressComputation {
   item: ReadingProgressItem;
@@ -23,9 +22,49 @@ export interface ReadingProgressComputation {
 }
 
 /**
+ * Brings a saved progress record in line with the book's real PDF page count, keeping the reader's page.
+ * - Known PDF: the denominator becomes the verified count and progress is recalculated from the page
+ *   (a stale "100%" computed against a wrong total is discarded).
+ * - A saved page beyond the end of the real PDF (left over from a different file) is clamped for display
+ *   but marked inconsistent, so it can never count as finishing the book.
+ * - Unknown PDF: nothing is invented; a missing total stays 0 (unknown).
+ */
+export function normalizeProgressItem(item: ReadingProgressItem): { item: ReadingProgressItem; inconsistent: boolean } {
+  const verified = getVerifiedPageCount(item?.bookId);
+  const page = Number(item?.page) > 0 ? Math.floor(Number(item.page)) : 1;
+  if (verified) {
+    const inconsistent = page > verified;
+    const clamped = Math.min(page, verified);
+    return {
+      item: {
+        ...item,
+        page: clamped,
+        totalPages: verified,
+        progress: inconsistent ? Math.min(99, progressPercent(clamped, verified)) : progressPercent(clamped, verified),
+      },
+      inconsistent,
+    };
+  }
+  const total = Number(item?.totalPages) > 0 ? Math.floor(Number(item.totalPages)) : 0;
+  return {
+    item: { ...item, page, totalPages: total, progress: total > 0 ? progressPercent(page, total) : Math.min(99, Number(item?.progress) || 0) },
+    inconsistent: total > 0 && page > total,
+  };
+}
+
+/** True only when the reader has genuinely reached the last page of the real PDF. */
+export function isFinishedReading(item: ReadingProgressItem | undefined): boolean {
+  if (!item?.bookId) return false;
+  const { item: n, inconsistent } = normalizeProgressItem(item);
+  return !inconsistent && n.totalPages > 0 && n.page >= n.totalPages;
+}
+
+/**
  * Computes the next progress record for a book.
- * Omitted (or non-positive) page/totalPages keep the existing values instead of falling back to defaults,
- * so a caller that only knows the book ID can never rewrite real page counts.
+ * Total pages, in order of authority: the open PDF's numPages (passed by the reader), the verified count of
+ * the book's PDF, the saved record, the catalogue value. If none is known the total stays unknown (0) and the
+ * book can never be marked complete. Omitted page/totalPages keep the existing values, so a caller that only
+ * knows the book ID (e.g. the detail page) can never rewrite real progress.
  */
 export function computeReadingProgress(
   existing: ReadingProgressItem | undefined,
@@ -35,22 +74,20 @@ export function computeReadingProgress(
   catalogPages: number = 0,
   now: number = Date.now()
 ): ReadingProgressComputation {
+  const prev = existing ? normalizeProgressItem(existing) : undefined;
+  const base = prev?.item;
   // page <= 1 is treated as "unspecified" (existing behaviour: re-opening a book never rewinds saved progress)
-  const curPage = page && page > 1 ? page : existing && existing.page > 0 ? existing.page : 1;
   const curTotal =
     totalPages && totalPages > 0
       ? totalPages
-      : existing && existing.totalPages > 0
-      ? existing.totalPages
-      : catalogPages > 0
-      ? catalogPages
-      : DEFAULT_TOTAL_PAGES;
-  const progress = Math.min(100, Math.round((curPage / curTotal) * 100));
+      : getVerifiedPageCount(bookId) ?? (base && base.totalPages > 0 ? base.totalPages : catalogPages > 0 ? catalogPages : 0);
+  const rawPage = page && page > 1 ? page : base && base.page > 0 ? base.page : 1;
+  const curPage = curTotal > 0 ? Math.min(rawPage, curTotal) : rawPage;
+  const progress = progressPercent(curPage, curTotal);
 
-  const wasCompleted = Boolean(
-    existing && ((existing.totalPages > 0 && existing.page >= existing.totalPages) || existing.progress >= 100)
-  );
-  const isCompleted = curPage >= curTotal;
+  const wasCompleted = Boolean(existing && isFinishedReading(existing));
+  // A page that only reached the end because it was clamped is not a real finish
+  const isCompleted = curTotal > 0 && curPage >= curTotal && rawPage <= curTotal && !(prev?.inconsistent && !(page && page > 1));
 
   const changed =
     !existing ||
@@ -72,18 +109,18 @@ export function computeReadingProgress(
 }
 
 /**
- * Merges two progress records for the same book: furthest page wins, latest timestamp is kept.
+ * Merges two progress records for the same book: furthest page wins, latest timestamp is kept, and the
+ * denominator is the verified PDF count when known (never a guessed default).
  */
 export function mergeProgressItems(a: ReadingProgressItem, b: ReadingProgressItem): ReadingProgressItem {
-  const page = Math.max(a.page || 1, b.page || 1);
-  const totalPages = Math.max(a.totalPages || 0, b.totalPages || 0) || DEFAULT_TOTAL_PAGES;
-  return {
-    bookId: a.bookId || b.bookId,
-    page,
-    totalPages,
-    progress: Math.max(a.progress || 0, b.progress || 0, Math.min(100, Math.round((page / totalPages) * 100))),
-    lastReadAt: Math.max(a.lastReadAt || 0, b.lastReadAt || 0),
-  };
+  const bookId = a.bookId || b.bookId;
+  const page = Math.max(Number(a.page) || 1, Number(b.page) || 1);
+  const total = getVerifiedPageCount(bookId) ?? Math.max(Number(a.totalPages) || 0, Number(b.totalPages) || 0);
+  const lastReadAt = Math.max(a.lastReadAt || 0, b.lastReadAt || 0);
+  if (total > 0) {
+    return normalizeProgressItem({ bookId, page, totalPages: total, progress: 0, lastReadAt }).item;
+  }
+  return { bookId, page, totalPages: 0, progress: Math.min(99, Math.max(a.progress || 0, b.progress || 0)), lastReadAt };
 }
 
 /**
@@ -154,10 +191,12 @@ export function mergeReadingMemory(a: BookReadingMemory | undefined, b: BookRead
 }
 
 /**
- * Book IDs are used inside storage keys; reject anything that could collide with the key scheme.
+ * Book IDs are used inside storage keys (":"-separated) and as Firestore document IDs, so ":" "/" "\" and
+ * control characters are rejected. Inner spaces are allowed: a catalogue ID such as "The Conquest of Happiness"
+ * is legitimate and its reader data must not be silently skipped.
  */
 export function isSafeBookId(id: unknown): id is string {
-  return typeof id === "string" && /^[^:\s]{1,200}$/.test(id);
+  return typeof id === "string" && id.length <= 200 && /^[^:/\\\s](?:[^:/\\\t\n\r\f\v]*[^:/\\\s])?$/.test(id);
 }
 
 // ---------------------------------------------------------------- Account-level merges (cloud ⇄ device)

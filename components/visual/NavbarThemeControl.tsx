@@ -43,16 +43,16 @@ export default function NavbarThemeControl({ compact = false }: NavbarThemeContr
         aria-haspopup="true"
         aria-expanded={isOpen}
       >
-        <svg
-          className={`w-3.5 h-3.5 text-[var(--text-secondary)] transition-transform duration-200 ${
-            isOpen ? "rotate-180 text-[var(--accent)]" : ""
+        {/* Current theme's main colour with an ivory highlight (Architect → gold/ivory, Dark/Midnight → blue,
+            Sunset → pink…); follows the selection automatically */}
+        <span
+          aria-hidden="true"
+          data-theme-indicator={currentThemeConfig.id}
+          className={`block w-3.5 h-3.5 rounded-full border border-white/30 shadow-sm transition-transform duration-200 ${
+            isOpen ? "scale-110 ring-2 ring-[var(--accent)]/40" : ""
           }`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+          style={{ background: `radial-gradient(circle at 35% 30%, #fffdf8 0%, ${currentThemeConfig.primaryColor} 62%)` }}
+        />
       </button>
 
       {/* Floating Theme Popover Dropdown */}

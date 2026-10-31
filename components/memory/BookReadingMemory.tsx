@@ -7,6 +7,7 @@ import Link from "next/link";
 import { Book } from "@/data/books";
 import { useLibrary } from "@/context/LibraryContext";
 import { getBookAnnotations, ReadingTimelineEvent } from "@/lib/reader-storage";
+import { getVerifiedPageCount } from "@/lib/book-pages";
 
 interface BookReadingMemoryProps {
   book: Book;
@@ -77,7 +78,9 @@ export default function BookReadingMemory({
 
   const totalAnnotations = highlights.length + notes.length + bookmarks.length + drawingPages.length;
 
-  const totalPages = Number(book.pages) || progress?.totalPages || 100;
+  // The PDF's verified page count; unknown stays unknown (shown as —), never a guessed 100
+  const totalPages = getVerifiedPageCount(book.id) ?? (Number(book.pages) || progress?.totalPages || 0);
+  const mapPages = Math.max(1, totalPages);
   const pageDensityMap: Record<number, number> = {};
 
   highlights.forEach((h) => {
@@ -102,11 +105,11 @@ export default function BookReadingMemory({
     }
   });
 
-  const segmentsCount = Math.min(20, Math.max(5, totalPages));
-  const pagesPerSegment = Math.ceil(totalPages / segmentsCount);
+  const segmentsCount = Math.min(20, Math.max(5, mapPages));
+  const pagesPerSegment = Math.ceil(mapPages / segmentsCount);
   const densitySegments = Array.from({ length: segmentsCount }).map((_, idx) => {
     const startP = idx * pagesPerSegment + 1;
-    const endP = Math.min(totalPages, (idx + 1) * pagesPerSegment);
+    const endP = Math.min(mapPages, (idx + 1) * pagesPerSegment);
     let segmentScore = 0;
     for (let p = startP; p <= endP; p++) {
       segmentScore += pageDensityMap[p] || 0;
@@ -233,7 +236,7 @@ export default function BookReadingMemory({
                     {progress?.progress || 0}%
                   </strong>
                   <span className="text-[10px] text-[var(--text-secondary)] block">
-                    Page {progress?.page || 1} / {totalPages}
+                    Page {progress?.page || 1} / {totalPages || "—"}
                   </span>
                 </div>
 
@@ -322,8 +325,8 @@ export default function BookReadingMemory({
 
                 <div className="flex justify-between text-[10px] text-[var(--text-secondary)] font-mono">
                   <span>Page 1</span>
-                  <span>Page {Math.floor(totalPages / 2)}</span>
-                  <span>Page {totalPages}</span>
+                  <span>Page {totalPages ? Math.floor(totalPages / 2) : "—"}</span>
+                  <span>Page {totalPages || "—"}</span>
                 </div>
               </div>
 

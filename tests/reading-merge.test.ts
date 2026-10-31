@@ -10,44 +10,47 @@ import {
   isSafeBookId,
 } from "../lib/reading-merge";
 
-const existing = { bookId: "1984", page: 200, totalPages: 328, progress: 61, lastReadAt: 1000 };
+const existing = { bookId: "test-book", page: 200, totalPages: 328, progress: 61, lastReadAt: 1000 };
 
 test("opening a book without page info never rewrites its page count (detail-page regression)", () => {
-  const res = computeReadingProgress(existing, "1984", undefined, undefined, 328, 5000);
+  const res = computeReadingProgress(existing, "test-book", undefined, undefined, 328, 5000);
   assert.equal(res.changed, false);
   assert.equal(res.isNewCompletion, false);
   assert.deepEqual(res.item, existing);
 });
 
 test("the old default (page 1 / 100 pages) is no longer injected for unknown totals", () => {
-  const res = computeReadingProgress(existing, "1984", 1, undefined, 328);
+  const res = computeReadingProgress(existing, "test-book", 1, undefined, 328);
   assert.equal(res.item.totalPages, 328);
   assert.equal(res.item.page, 200);
   assert.equal(res.isNewCompletion, false);
 });
 
-test("first open uses catalog page count, falls back to 100 only when nothing is known", () => {
+test("first open uses the known page count; an unknown total stays unknown (never a 100-page default)", () => {
   assert.equal(computeReadingProgress(undefined, "x", undefined, undefined, 328).item.totalPages, 328);
-  assert.equal(computeReadingProgress(undefined, "x").item.totalPages, 100);
-  assert.equal(computeReadingProgress(undefined, "x").changed, true);
+  const unknown = computeReadingProgress(undefined, "x");
+  assert.equal(unknown.item.totalPages, 0);
+  assert.equal(unknown.item.progress, 0);
+  assert.equal(unknown.isNewCompletion, false);
+  assert.equal(unknown.changed, true);
 });
 
 test("reaching the last page is a new completion exactly once", () => {
-  const first = computeReadingProgress(existing, "1984", 328, 328);
+  const first = computeReadingProgress(existing, "test-book", 328, 328);
   assert.equal(first.isNewCompletion, true);
   assert.equal(first.item.progress, 100);
-  const again = computeReadingProgress(first.item, "1984", 328, 328);
+  const again = computeReadingProgress(first.item, "test-book", 328, 328);
   assert.equal(again.isNewCompletion, false);
   assert.equal(again.changed, false);
 });
 
 test("page <= 1 keeps the saved position (existing behaviour preserved)", () => {
-  assert.equal(computeReadingProgress(existing, "1984", 1, 328).item.page, 200);
-  assert.equal(computeReadingProgress(existing, "1984", 0, 0).item.page, 200);
+  assert.equal(computeReadingProgress(existing, "test-book", 1, 328).item.page, 200);
+  assert.equal(computeReadingProgress(existing, "test-book", 0, 0).item.page, 200);
 });
 
 test("progress merge keeps the furthest page and the larger real page count", () => {
-  const corrupted = { bookId: "1984", page: 200, totalPages: 100, progress: 100, lastReadAt: 5 };
+  const corrupted = { bookId: "test-book", page: 200, totalPages: 100, progress: 100, lastReadAt: 5 };
   const merged = mergeProgressItems(corrupted, existing);
   assert.equal(merged.page, 200);
   assert.equal(merged.totalPages, 328);
@@ -94,6 +97,11 @@ test("book IDs that could break storage keys are rejected", () => {
   assert.equal(isSafeBookId("uid:book"), false);
   assert.equal(isSafeBookId(""), false);
   assert.equal(isSafeBookId(42), false);
+  assert.equal(isSafeBookId("The Conquest of Happiness"), true, "catalogue IDs with inner spaces are valid");
+  assert.equal(isSafeBookId("a/b"), false, "would break Firestore paths");
+  assert.equal(isSafeBookId(" padded"), false);
+  assert.equal(isSafeBookId("line\nbreak"), false);
+  assert.equal(isSafeBookId("x".repeat(201)), false);
 });
 
 // ---------------------------------------------------------------- Account-level merges
